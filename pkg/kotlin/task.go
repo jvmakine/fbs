@@ -45,6 +45,11 @@ func (k *KotlinCompile) Directory() string {
 	return k.sourceDir
 }
 
+// TaskType returns the type of task (build for compilation)
+func (k *KotlinCompile) TaskType() graph.TaskType {
+	return graph.TaskTypeBuild
+}
+
 // Hash returns a hash representing the task's configuration and inputs
 func (k *KotlinCompile) Hash() string {
 	h := sha256.New()

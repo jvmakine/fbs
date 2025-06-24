@@ -4,6 +4,16 @@ import (
 	"context"
 )
 
+// TaskType represents the type of task for filtering and execution
+type TaskType string
+
+const (
+	// TaskTypeBuild represents tasks that build/compile code
+	TaskTypeBuild TaskType = "build"
+	// TaskTypeTest represents tasks that run tests
+	TaskTypeTest TaskType = "test"
+)
+
 // TaskResult represents the result of executing a task
 type TaskResult struct {
 	// Files contains the relative paths to files produced by the task
@@ -32,6 +42,9 @@ type Task interface {
 
 	// Directory returns the directory where this task was discovered
 	Directory() string
+
+	// TaskType returns the type of task (build or test)
+	TaskType() TaskType
 
 	// Hash returns a hash representing the task's configuration and inputs
 	// This is used for caching and determining if a task needs to be re-executed

@@ -45,6 +45,11 @@ func (j *JunitTest) Directory() string {
 	return j.sourceDir
 }
 
+// TaskType returns the type of task (test for JUnit tests)
+func (j *JunitTest) TaskType() graph.TaskType {
+	return graph.TaskTypeTest
+}
+
 // Hash returns a hash representing the task's configuration and inputs
 func (j *JunitTest) Hash() string {
 	h := sha256.New()

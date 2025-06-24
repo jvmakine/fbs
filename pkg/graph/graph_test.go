@@ -43,6 +43,10 @@ func (m *MockTask) Directory() string {
 	return m.directory
 }
 
+func (m *MockTask) TaskType() TaskType {
+	return TaskTypeBuild // Default to build for tests
+}
+
 func (m *MockTask) Hash() string {
 	return m.hash
 }

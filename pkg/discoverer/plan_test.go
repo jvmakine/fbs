@@ -58,6 +58,10 @@ func (m *MockPlanTask) Directory() string {
 	return m.directory
 }
 
+func (m *MockPlanTask) TaskType() graph.TaskType {
+	return graph.TaskTypeBuild // Default to build for tests
+}
+
 func (m *MockPlanTask) Hash() string {
 	return m.hash
 }

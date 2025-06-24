@@ -42,6 +42,11 @@ func (g *GradleProject) Directory() string {
 	return g.projectDir
 }
 
+// TaskType returns the type of task (build for gradle projects)
+func (g *GradleProject) TaskType() graph.TaskType {
+	return graph.TaskTypeBuild
+}
+
 // Hash returns a hash representing the task's configuration and inputs
 func (g *GradleProject) Hash() string {
 	h := sha256.New()
