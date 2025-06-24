@@ -124,10 +124,11 @@ func TestKotlinDiscoverer_Name(t *testing.T) {
 
 func TestKotlinCompile_BasicProperties(t *testing.T) {
 	kotlinFiles := []string{"Main.kt", "Utils.kt"}
-	task := NewKotlinCompile("test-compile", "/test/src", kotlinFiles)
+	task := NewKotlinCompile("/test/src", kotlinFiles)
 
-	if task.ID() != "test-compile" {
-		t.Errorf("Expected ID 'test-compile', got '%s'", task.ID())
+	// ID is now hash-based, so we just check it's not empty
+	if task.ID() == "" {
+		t.Error("Expected non-empty ID")
 	}
 
 	if task.GetSourceDir() != "/test/src" {
@@ -150,7 +151,7 @@ func TestKotlinCompile_BasicProperties(t *testing.T) {
 	}
 
 	// Test hash is different for different tasks
-	task2 := NewKotlinCompile("test-compile-2", "/test/src", kotlinFiles)
+	task2 := NewKotlinCompile("/test/src2", kotlinFiles)
 	if task.Hash() == task2.Hash() {
 		t.Error("Different tasks should have different hashes")
 	}
@@ -180,7 +181,7 @@ func TestKotlinCompile_Execute_MockTest(t *testing.T) {
 		}
 	}
 
-	task := NewKotlinCompile("test-compile", sourceDir, kotlinFiles)
+	task := NewKotlinCompile(sourceDir, kotlinFiles)
 
 	// Create work directory
 	workDir := filepath.Join(tempDir, "work")
@@ -206,7 +207,7 @@ func TestKotlinCompile_Execute_MockTest(t *testing.T) {
 }
 
 func TestKotlinCompile_Classpath(t *testing.T) {
-	task := NewKotlinCompile("test", "/src", []string{"Main.kt"})
+	task := NewKotlinCompile("/src", []string{"Main.kt"})
 	
 	// Test initial classpath is empty
 	if len(task.classpath) != 0 {

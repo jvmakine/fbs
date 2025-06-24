@@ -66,8 +66,7 @@ func (d *KotlinDiscoverer) Discover(ctx context.Context, path string, potentialD
 	}
 	
 	// Create Kotlin compilation task
-	taskID := fmt.Sprintf("kotlin-compile-%s", filepath.Base(searchDir))
-	task := NewKotlinCompile(taskID, searchDir, kotlinFiles)
+	task := NewKotlinCompile(searchDir, kotlinFiles)
 	
 	// Add potential dependencies as dependencies for this task
 	// Filter to only include other Kotlin compilation tasks as dependencies

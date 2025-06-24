@@ -12,15 +12,19 @@ import (
 // MockTask implements the Task interface for testing
 type MockTask struct {
 	id           string
+	name         string
+	directory    string
 	hash         string
 	dependencies []Task
 	files        []string
 	executeFunc  func(ctx context.Context, workDir string, dependencyInputs []DependencyInput) TaskResult
 }
 
-func NewMockTask(id, hash string, deps []Task) *MockTask {
+func NewMockTask(id, name, directory, hash string, deps []Task) *MockTask {
 	return &MockTask{
 		id:           id,
+		name:         name,
+		directory:    directory,
 		hash:         hash,
 		dependencies: deps,
 		files:        []string{fmt.Sprintf("%s.txt", id)},
@@ -29,6 +33,14 @@ func NewMockTask(id, hash string, deps []Task) *MockTask {
 
 func (m *MockTask) ID() string {
 	return m.id
+}
+
+func (m *MockTask) Name() string {
+	return m.name
+}
+
+func (m *MockTask) Directory() string {
+	return m.directory
 }
 
 func (m *MockTask) Hash() string {
@@ -62,7 +74,7 @@ func (m *MockTask) Execute(ctx context.Context, workDir string, dependencyInputs
 
 func TestGraph_AddTask(t *testing.T) {
 	graph := NewGraph()
-	task := NewMockTask("task1", "hash1", nil)
+	task := NewMockTask("task1", "mock-task", "/test", "hash1", nil)
 	
 	err := graph.AddTask(task)
 	if err != nil {
@@ -80,9 +92,9 @@ func TestGraph_TopologicalSort(t *testing.T) {
 	graph := NewGraph()
 	
 	// Create tasks: A -> B -> C (A depends on B, B depends on C)
-	taskC := NewMockTask("C", "hashC", nil)
-	taskB := NewMockTask("B", "hashB", []Task{taskC})
-	taskA := NewMockTask("A", "hashA", []Task{taskB})
+	taskC := NewMockTask("C", "mock-task", "/test", "hashC", nil)
+	taskB := NewMockTask("B", "mock-task", "/test", "hashB", []Task{taskC})
+	taskA := NewMockTask("A", "mock-task", "/test", "hashA", []Task{taskB})
 	
 	graph.AddTask(taskA)
 	graph.AddTask(taskB)
@@ -113,8 +125,8 @@ func TestGraph_CycleDetection(t *testing.T) {
 	graph := NewGraph()
 	
 	// Create a cycle: A -> B -> A
-	taskA := NewMockTask("A", "hashA", nil)
-	taskB := NewMockTask("B", "hashB", []Task{taskA})
+	taskA := NewMockTask("A", "mock-task", "/test", "hashA", nil)
+	taskB := NewMockTask("B", "mock-task", "/test", "hashB", []Task{taskA})
 	taskA.dependencies = []Task{taskB} // Create the cycle
 	
 	graph.AddTask(taskA)
@@ -127,9 +139,9 @@ func TestGraph_CycleDetection(t *testing.T) {
 }
 
 func TestComputeTaskHash(t *testing.T) {
-	taskC := NewMockTask("C", "hashC", nil)
-	taskB := NewMockTask("B", "hashB", []Task{taskC})
-	taskA := NewMockTask("A", "hashA", []Task{taskB})
+	taskC := NewMockTask("C", "mock-task", "/test", "hashC", nil)
+	taskB := NewMockTask("B", "mock-task", "/test", "hashB", []Task{taskC})
+	taskA := NewMockTask("A", "mock-task", "/test", "hashA", []Task{taskB})
 	
 	hashA := ComputeTaskHash(taskA)
 	hashB := ComputeTaskHash(taskB)
@@ -158,9 +170,9 @@ func TestRunner_Execute(t *testing.T) {
 	runner := NewRunner(tempDir)
 	
 	// Create tasks: A depends on B, B depends on C
-	taskC := NewMockTask("C", "hashC", nil)
-	taskB := NewMockTask("B", "hashB", []Task{taskC})
-	taskA := NewMockTask("A", "hashA", []Task{taskB})
+	taskC := NewMockTask("C", "mock-task", "/test", "hashC", nil)
+	taskB := NewMockTask("B", "mock-task", "/test", "hashB", []Task{taskC})
+	taskA := NewMockTask("A", "mock-task", "/test", "hashA", []Task{taskB})
 	
 	graph.AddTask(taskA)
 	graph.AddTask(taskB)
@@ -217,7 +229,7 @@ func TestRunner_ExecuteWithFailure(t *testing.T) {
 	runner := NewRunner(tempDir)
 	
 	// Create a task that will fail
-	failingTask := NewMockTask("failing", "hashFail", nil)
+	failingTask := NewMockTask("failing", "mock-task", "/test", "hashFail", nil)
 	failingTask.executeFunc = func(ctx context.Context, workDir string, dependencyInputs []DependencyInput) TaskResult {
 		return TaskResult{Error: fmt.Errorf("task failed")}
 	}
@@ -242,7 +254,7 @@ func TestRunner_ExecuteWithCancellation(t *testing.T) {
 	runner := NewRunner(tempDir)
 	
 	// Create a task that takes time
-	slowTask := NewMockTask("slow", "hashSlow", nil)
+	slowTask := NewMockTask("slow", "mock-task", "/test", "hashSlow", nil)
 	slowTask.executeFunc = func(ctx context.Context, workDir string, dependencyInputs []DependencyInput) TaskResult {
 		select {
 		case <-time.After(100 * time.Millisecond):
@@ -277,7 +289,7 @@ func TestRunner_Caching(t *testing.T) {
 	
 	// Create a simple task
 	executionCount := 0
-	cachedTask := NewMockTask("cached", "hashCached", nil)
+	cachedTask := NewMockTask("cached", "mock-task", "/test", "hashCached", nil)
 	cachedTask.executeFunc = func(ctx context.Context, workDir string, dependencyInputs []DependencyInput) TaskResult {
 		executionCount++
 		// Create a file
@@ -350,10 +362,10 @@ func TestRunner_DependencyInputs(t *testing.T) {
 	runner := NewRunner(tempDir)
 	
 	// Create dependency task
-	depTask := NewMockTask("dependency", "hashDep", nil)
+	depTask := NewMockTask("dependency", "mock-task", "/test", "hashDep", nil)
 	
 	// Create main task that depends on depTask
-	mainTask := NewMockTask("main", "hashMain", []Task{depTask})
+	mainTask := NewMockTask("main", "mock-task", "/test", "hashMain", []Task{depTask})
 	var receivedInputs []DependencyInput
 	mainTask.executeFunc = func(ctx context.Context, workDir string, dependencyInputs []DependencyInput) TaskResult {
 		receivedInputs = dependencyInputs

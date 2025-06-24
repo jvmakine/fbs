@@ -36,12 +36,22 @@ func (m *MockDiscoverer) Discover(ctx context.Context, path string, potentialDep
 
 // MockTask for testing (simplified version from graph package)
 type MockTask struct {
-	id   string
-	hash string
+	id        string
+	name      string
+	directory string
+	hash      string
 }
 
 func (m *MockTask) ID() string {
 	return m.id
+}
+
+func (m *MockTask) Name() string {
+	return m.name
+}
+
+func (m *MockTask) Directory() string {
+	return m.directory
 }
 
 func (m *MockTask) Hash() string {
@@ -65,8 +75,8 @@ func TestMultiDiscoverer_Discover(t *testing.T) {
 			if path == "package.json" || path == "src/index.js" {
 				return &DiscoveryResult{
 					Tasks: []graph.Task{
-						&MockTask{id: "npm-install", hash: "npm-hash"},
-						&MockTask{id: "webpack-build", hash: "webpack-hash"},
+						&MockTask{id: "npm-install", name: "npm", directory: "/test", hash: "npm-hash"},
+						&MockTask{id: "webpack-build", name: "webpack", directory: "/test", hash: "webpack-hash"},
 					},
 					Path: path,
 				}, nil
@@ -82,7 +92,7 @@ func TestMultiDiscoverer_Discover(t *testing.T) {
 			if path == "go.mod" || path == "main.go" {
 				return &DiscoveryResult{
 					Tasks: []graph.Task{
-						&MockTask{id: "go-build", hash: "go-hash"},
+						&MockTask{id: "go-build", name: "go", directory: "/test", hash: "go-hash"},
 					},
 					Path: path,
 				}, nil
@@ -183,7 +193,7 @@ func TestDiscoveryResult(t *testing.T) {
 	}
 	
 	// Test result with tasks and errors
-	mockTask := &MockTask{id: "test-task", hash: "test-hash"}
+	mockTask := &MockTask{id: "test-task", name: "test", directory: "/test", hash: "test-hash"}
 	result = &DiscoveryResult{
 		Tasks:  []graph.Task{mockTask},
 		Errors: []error{},

@@ -24,8 +24,14 @@ type DependencyInput struct {
 
 // Task represents a unit of work in the build graph
 type Task interface {
-	// ID returns a unique identifier for this task
+	// ID returns a unique identifier for this task (uses hash for uniqueness)
 	ID() string
+
+	// Name returns a human-readable name for this task type
+	Name() string
+
+	// Directory returns the directory where this task was discovered
+	Directory() string
 
 	// Hash returns a hash representing the task's configuration and inputs
 	// This is used for caching and determining if a task needs to be re-executed

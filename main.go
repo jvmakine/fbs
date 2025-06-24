@@ -9,6 +9,7 @@ import (
 	"github.com/alecthomas/kong"
 
 	"fbs/pkg/discoverer"
+	"fbs/pkg/gradle"
 	"fbs/pkg/graph"
 	"fbs/pkg/kotlin"
 )
@@ -74,7 +75,8 @@ func runPlan(cmd PlanCmd) error {
 	// Create discoverers
 	discoverers := []discoverer.Discoverer{
 		kotlin.NewKotlinDiscoverer(),
-		// Add more discoverers here as they are implemented
+		kotlin.NewJunitDiscoverer(),
+		gradle.NewGradleDiscoverer(),
 	}
 
 	// Plan the build graph
@@ -85,25 +87,12 @@ func runPlan(cmd PlanCmd) error {
 	}
 
 	// Print the results
-	printPlanResult(result)
+	printPlanResult(result, absDir)
 
 	return nil
 }
 
-func printPlanResult(result *discoverer.PlanResult) {
-	fmt.Printf("Build Graph Planning Results\n")
-	fmt.Printf("============================\n\n")
-	
-	fmt.Printf("Git Root: %s\n", result.RootDir)
-	fmt.Printf("Scanned Directories: %d\n", len(result.ScannedDirs))
-	fmt.Printf("Discovered Tasks: %d\n", len(result.Graph.GetTasks()))
-	
-	if len(result.Errors) > 0 {
-		fmt.Printf("Errors: %d\n", len(result.Errors))
-	}
-	
-	fmt.Println()
-
+func printPlanResult(result *discoverer.PlanResult, baseDir string) {
 	// Print tasks
 	tasks := result.Graph.GetTasks()
 	if len(tasks) == 0 {
@@ -111,36 +100,65 @@ func printPlanResult(result *discoverer.PlanResult) {
 		return
 	}
 
-	fmt.Println("Tasks:")
-	fmt.Println("------")
 	for _, task := range tasks {
-		printTask(task, 0)
+		printTask(task, 0, baseDir)
 	}
 
 	// Print errors if any
 	if len(result.Errors) > 0 {
 		fmt.Println("\nErrors:")
-		fmt.Println("-------")
 		for i, err := range result.Errors {
 			fmt.Printf("%d. %v\n", i+1, err)
 		}
 	}
 }
 
-func printTask(task graph.Task, indent int) {
+func printTask(task graph.Task, indent int, baseDir string) {
 	indentStr := ""
 	for i := 0; i < indent; i++ {
 		indentStr += "  "
 	}
 
-	fmt.Printf("%s- %s (hash: %s)\n", indentStr, task.ID(), task.Hash()[:8])
+	// Colors
+	green := "\033[32m"
+	gray := "\033[90m"
+	blue := "\033[34m"
+	reset := "\033[0m"
+
+	// Convert absolute path to relative path
+	relPath, err := filepath.Rel(baseDir, task.Directory())
+	if err != nil {
+		relPath = task.Directory() // fallback to absolute if conversion fails
+	}
 	
-	// Print dependencies
+	// Use "." for current directory
+	if relPath == "" {
+		relPath = "."
+	}
+
+	fmt.Printf("%s- %s%s%s %s(%s)%s %s%s%s\n", 
+		indentStr, 
+		green, task.Name(), reset,
+		blue, relPath, reset,
+		gray, task.Hash()[:8], reset)
+	
+	// Print dependencies with path and hash
 	deps := task.Dependencies()
-	fmt.Printf("%s  Dependencies: %d\n", indentStr, len(deps))
 	if len(deps) > 0 {
 		for _, dep := range deps {
-			fmt.Printf("%s    -> %s\n", indentStr, dep.ID())
+			depRelPath, err := filepath.Rel(baseDir, dep.Directory())
+			if err != nil {
+				depRelPath = dep.Directory()
+			}
+			if depRelPath == "" {
+				depRelPath = "."
+			}
+			
+			fmt.Printf("%s    -> %s%s%s %s(%s)%s %s%s%s\n", 
+				indentStr, 
+				green, dep.Name(), reset,
+				blue, depRelPath, reset,
+				gray, dep.Hash()[:8], reset)
 		}
 	}
 }

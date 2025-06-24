@@ -40,12 +40,22 @@ func (m *MockPlanDiscoverer) Discover(ctx context.Context, path string, potentia
 
 // MockPlanTask for testing
 type MockPlanTask struct {
-	id   string
-	hash string
+	id        string
+	name      string
+	directory string
+	hash      string
 }
 
 func (m *MockPlanTask) ID() string {
 	return m.id
+}
+
+func (m *MockPlanTask) Name() string {
+	return m.name
+}
+
+func (m *MockPlanTask) Directory() string {
+	return m.directory
 }
 
 func (m *MockPlanTask) Hash() string {
@@ -166,8 +176,10 @@ func TestPlan_MockDiscoverers(t *testing.T) {
 				return &DiscoveryResult{
 					Tasks: []graph.Task{
 						&MockPlanTask{
-							id:   fmt.Sprintf("kotlin-compile-%s-%d", filepath.Base(path), taskCount),
-							hash: fmt.Sprintf("hash-%d", taskCount),
+							id:        fmt.Sprintf("kotlin-compile-%s-%d", filepath.Base(path), taskCount),
+							name:      "kotlin-compile",
+							directory: path,
+							hash:      fmt.Sprintf("hash-%d", taskCount),
 						},
 					},
 					Path: path,
@@ -187,8 +199,10 @@ func TestPlan_MockDiscoverers(t *testing.T) {
 				return &DiscoveryResult{
 					Tasks: []graph.Task{
 						&MockPlanTask{
-							id:   fmt.Sprintf("go-build-%d", taskCount),
-							hash: fmt.Sprintf("hash-%d", taskCount),
+							id:        fmt.Sprintf("go-build-%d", taskCount),
+							name:      "go-build",
+							directory: path,
+							hash:      fmt.Sprintf("hash-%d", taskCount),
 						},
 					},
 					Path: path,

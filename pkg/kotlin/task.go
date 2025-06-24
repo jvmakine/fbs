@@ -14,7 +14,6 @@ import (
 
 // KotlinCompile represents a task that compiles Kotlin source files
 type KotlinCompile struct {
-	id           string
 	sourceDir    string
 	kotlinFiles  []string
 	classpath    []string
@@ -22,9 +21,8 @@ type KotlinCompile struct {
 }
 
 // NewKotlinCompile creates a new Kotlin compilation task
-func NewKotlinCompile(id, sourceDir string, kotlinFiles []string) *KotlinCompile {
+func NewKotlinCompile(sourceDir string, kotlinFiles []string) *KotlinCompile {
 	return &KotlinCompile{
-		id:           id,
 		sourceDir:    sourceDir,
 		kotlinFiles:  kotlinFiles,
 		classpath:    []string{},
@@ -32,18 +30,27 @@ func NewKotlinCompile(id, sourceDir string, kotlinFiles []string) *KotlinCompile
 	}
 }
 
-// ID returns the unique identifier for this task
+// ID returns the unique identifier for this task (using hash)
 func (k *KotlinCompile) ID() string {
-	return k.id
+	return k.Hash()
+}
+
+// Name returns the human-readable name for this task type
+func (k *KotlinCompile) Name() string {
+	return "kotlin-compile"
+}
+
+// Directory returns the directory where this task was discovered
+func (k *KotlinCompile) Directory() string {
+	return k.sourceDir
 }
 
 // Hash returns a hash representing the task's configuration and inputs
 func (k *KotlinCompile) Hash() string {
 	h := sha256.New()
 	
-	// Include task type, ID, and source directory
+	// Include task type and source directory
 	h.Write([]byte("KotlinCompile"))
-	h.Write([]byte(k.id))
 	h.Write([]byte(k.sourceDir))
 	
 	// Include sorted list of Kotlin files for consistency
