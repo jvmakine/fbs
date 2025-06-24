@@ -37,7 +37,7 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 		}
 	}
 
-	result, err := discoverer.Discover(ctx, kotlinDir)
+	result, err := discoverer.Discover(ctx, kotlinDir, []graph.Task{})
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 		t.Fatalf("Failed to create README.md: %v", err)
 	}
 
-	result, err = discoverer.Discover(ctx, emptyDir)
+	result, err = discoverer.Discover(ctx, emptyDir, []graph.Task{})
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 	}
 
 	// Test 3: Non-existent directory
-	result, err = discoverer.Discover(ctx, "/non/existent/path")
+	result, err = discoverer.Discover(ctx, "/non/existent/path", []graph.Task{})
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 
 	// Test 4: Single Kotlin file path
 	singleFile := filepath.Join(kotlinDir, "Main.kt")
-	result, err = discoverer.Discover(ctx, singleFile)
+	result, err = discoverer.Discover(ctx, singleFile, []graph.Task{})
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}

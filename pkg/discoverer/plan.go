@@ -23,7 +23,9 @@ type PlanResult struct {
 }
 
 // Plan discovers all build tasks in a git repository by traversing all directories
-// and running the provided discoverers on each directory
+// and running the provided discoverers on each directory. It processes directories
+// in bottom-up order so that subdirectory tasks can be passed as potential dependencies
+// to parent directory discoverers.
 func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 	// Find git root directory
 	rootDir, err := findGitRoot()
@@ -37,7 +39,8 @@ func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 	var allErrors []error
 	var scannedDirs []string
 	
-	// Traverse all directories in the repository
+	// First, collect all valid directories in the tree
+	var validDirs []string
 	err = filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			allErrors = append(allErrors, fmt.Errorf("error accessing path %s: %w", path, err))
@@ -59,20 +62,46 @@ func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 			return filepath.SkipDir
 		}
 		
+		validDirs = append(validDirs, path)
+		return nil
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect directories: %w", err)
+	}
+	
+	// Sort directories by depth (deepest first) for bottom-up processing
+	sortDirectoriesByDepth(validDirs)
+	
+	// Map to store tasks discovered in each directory
+	tasksByDir := make(map[string][]graph.Task)
+	
+	// Process directories in bottom-up order
+	for _, dirPath := range validDirs {
 		// Check context cancellation
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		default:
 		}
 		
-		scannedDirs = append(scannedDirs, path)
+		scannedDirs = append(scannedDirs, dirPath)
 		
-		// Run all discoverers on this directory
+		// Collect potential dependencies from subdirectories
+		var potentialDeps []graph.Task
+		for subDir, tasks := range tasksByDir {
+			// Check if subDir is a subdirectory of current dirPath
+			if isSubdirectory(dirPath, subDir) {
+				potentialDeps = append(potentialDeps, tasks...)
+			}
+		}
+		
+		// Run all discoverers on this directory with potential dependencies
+		var dirTasks []graph.Task
 		for _, disc := range discoverers {
-			result, err := disc.Discover(ctx, path)
+			result, err := disc.Discover(ctx, dirPath, potentialDeps)
 			if err != nil {
-				allErrors = append(allErrors, fmt.Errorf("discoverer %s failed on %s: %w", disc.Name(), path, err))
+				allErrors = append(allErrors, fmt.Errorf("discoverer %s failed on %s: %w", disc.Name(), dirPath, err))
 				continue
 			}
 			
@@ -83,6 +112,8 @@ func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 					if !strings.Contains(err.Error(), "already exists") {
 						allErrors = append(allErrors, fmt.Errorf("failed to add task %s: %w", task.ID(), err))
 					}
+				} else {
+					dirTasks = append(dirTasks, task)
 				}
 			}
 			
@@ -90,11 +121,10 @@ func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 			allErrors = append(allErrors, result.Errors...)
 		}
 		
-		return nil
-	})
-	
-	if err != nil {
-		return nil, fmt.Errorf("failed to walk directory tree: %w", err)
+		// Store tasks found in this directory
+		if len(dirTasks) > 0 {
+			tasksByDir[dirPath] = dirTasks
+		}
 	}
 	
 	return &PlanResult{
@@ -103,6 +133,35 @@ func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 		RootDir:     rootDir,
 		ScannedDirs: scannedDirs,
 	}, nil
+}
+
+// sortDirectoriesByDepth sorts directories by depth (deepest first)
+func sortDirectoriesByDepth(dirs []string) {
+	// Simple bubble sort by path depth (deeper paths have more separators)
+	for i := 0; i < len(dirs); i++ {
+		for j := i + 1; j < len(dirs); j++ {
+			depthI := strings.Count(dirs[i], string(filepath.Separator))
+			depthJ := strings.Count(dirs[j], string(filepath.Separator))
+			if depthI < depthJ {
+				dirs[i], dirs[j] = dirs[j], dirs[i]
+			}
+		}
+	}
+}
+
+// isSubdirectory checks if subPath is a subdirectory of parentPath
+func isSubdirectory(parentPath, subPath string) bool {
+	// Clean paths to handle . and .. elements
+	parentPath = filepath.Clean(parentPath)
+	subPath = filepath.Clean(subPath)
+	
+	// subPath must be longer than parentPath to be a subdirectory
+	if len(subPath) <= len(parentPath) {
+		return false
+	}
+	
+	// Check if subPath starts with parentPath followed by a separator
+	return strings.HasPrefix(subPath, parentPath+string(filepath.Separator))
 }
 
 // findGitRoot finds the root directory of the git repository

@@ -25,7 +25,7 @@ func (d *KotlinDiscoverer) Name() string {
 }
 
 // Discover finds Kotlin files in the given path and creates compilation tasks
-func (d *KotlinDiscoverer) Discover(ctx context.Context, path string) (*discoverer.DiscoveryResult, error) {
+func (d *KotlinDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task) (*discoverer.DiscoveryResult, error) {
 	// Check if path exists
 	info, err := os.Stat(path)
 	if err != nil {
@@ -68,6 +68,14 @@ func (d *KotlinDiscoverer) Discover(ctx context.Context, path string) (*discover
 	// Create Kotlin compilation task
 	taskID := fmt.Sprintf("kotlin-compile-%s", filepath.Base(searchDir))
 	task := NewKotlinCompile(taskID, searchDir, kotlinFiles)
+	
+	// Add potential dependencies as dependencies for this task
+	// Filter to only include other Kotlin compilation tasks as dependencies
+	for _, dep := range potentialDependencies {
+		if kotlinDep, ok := dep.(*KotlinCompile); ok {
+			task.AddDependency(kotlinDep)
+		}
+	}
 	
 	return &discoverer.DiscoveryResult{
 		Tasks: []graph.Task{task},

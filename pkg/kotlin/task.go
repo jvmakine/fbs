@@ -14,19 +14,21 @@ import (
 
 // KotlinCompile represents a task that compiles Kotlin source files
 type KotlinCompile struct {
-	id          string
-	sourceDir   string
-	kotlinFiles []string
-	classpath   []string
+	id           string
+	sourceDir    string
+	kotlinFiles  []string
+	classpath    []string
+	dependencies []graph.Task
 }
 
 // NewKotlinCompile creates a new Kotlin compilation task
 func NewKotlinCompile(id, sourceDir string, kotlinFiles []string) *KotlinCompile {
 	return &KotlinCompile{
-		id:          id,
-		sourceDir:   sourceDir,
-		kotlinFiles: kotlinFiles,
-		classpath:   []string{},
+		id:           id,
+		sourceDir:    sourceDir,
+		kotlinFiles:  kotlinFiles,
+		classpath:    []string{},
+		dependencies: []graph.Task{},
 	}
 }
 
@@ -66,8 +68,7 @@ func (k *KotlinCompile) Hash() string {
 
 // Dependencies returns the list of tasks that must complete before this task can run
 func (k *KotlinCompile) Dependencies() []graph.Task {
-	// No dependencies for basic Kotlin compilation
-	return []graph.Task{}
+	return k.dependencies
 }
 
 // Execute runs the Kotlin compilation task
@@ -155,4 +156,9 @@ func (k *KotlinCompile) GetSourceDir() string {
 // GetKotlinFiles returns the list of Kotlin files
 func (k *KotlinCompile) GetKotlinFiles() []string {
 	return k.kotlinFiles
+}
+
+// AddDependency adds a task as a dependency
+func (k *KotlinCompile) AddDependency(task graph.Task) {
+	k.dependencies = append(k.dependencies, task)
 }
