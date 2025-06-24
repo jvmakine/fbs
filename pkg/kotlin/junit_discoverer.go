@@ -26,7 +26,7 @@ func (d *JunitDiscoverer) Name() string {
 }
 
 // Discover finds Kotlin test files and creates JUnit test tasks
-func (d *JunitDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task) (*discoverer.DiscoveryResult, error) {
+func (d *JunitDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *discoverer.BuildContext) (*discoverer.DiscoveryResult, error) {
 	// Check if path exists
 	info, err := os.Stat(path)
 	if err != nil {

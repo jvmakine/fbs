@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"fbs/pkg/discoverer"
 	"fbs/pkg/graph"
 )
 
@@ -17,7 +18,7 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	discoverer := NewKotlinDiscoverer()
+	kd := NewKotlinDiscoverer()
 	ctx := context.Background()
 
 	// Test 1: Directory with Kotlin files
@@ -37,7 +38,8 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 		}
 	}
 
-	result, err := discoverer.Discover(ctx, kotlinDir, []graph.Task{})
+	buildContext := discoverer.NewBuildContext()
+	result, err := kd.Discover(ctx, kotlinDir, []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -73,7 +75,7 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 		t.Fatalf("Failed to create README.md: %v", err)
 	}
 
-	result, err = discoverer.Discover(ctx, emptyDir, []graph.Task{})
+	result, err = kd.Discover(ctx, emptyDir, []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -83,7 +85,7 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 	}
 
 	// Test 3: Non-existent directory
-	result, err = discoverer.Discover(ctx, "/non/existent/path", []graph.Task{})
+	result, err = kd.Discover(ctx, "/non/existent/path", []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -94,7 +96,7 @@ func TestKotlinDiscoverer_Discover(t *testing.T) {
 
 	// Test 4: Single Kotlin file path
 	singleFile := filepath.Join(kotlinDir, "Main.kt")
-	result, err = discoverer.Discover(ctx, singleFile, []graph.Task{})
+	result, err = kd.Discover(ctx, singleFile, []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -208,16 +210,16 @@ func TestKotlinCompile_Execute_MockTest(t *testing.T) {
 
 func TestKotlinCompile_Classpath(t *testing.T) {
 	task := NewKotlinCompile("/src", []string{"Main.kt"})
-	
+
 	// Test initial classpath is empty
 	if len(task.classpath) != 0 {
 		t.Errorf("Expected empty initial classpath, got %d items", len(task.classpath))
 	}
-	
+
 	// Test setting classpath
 	classpath := []string{"/lib/kotlin-stdlib.jar", "/lib/other.jar"}
 	task.SetClasspath(classpath)
-	
+
 	if len(task.classpath) != 2 {
 		t.Errorf("Expected 2 classpath items, got %d", len(task.classpath))
 	}

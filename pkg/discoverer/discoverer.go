@@ -21,8 +21,9 @@ type Discoverer interface {
 	// Discover finds and returns build tasks from the given path
 	// The path can be a directory or a specific file
 	// potentialDependencies contains tasks discovered from subdirectories that could be dependencies
+	// buildContext contains metadata from parent directories and context discoverers
 	// Returns a DiscoveryResult containing the found tasks and any errors
-	Discover(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error)
+	Discover(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error)
 
 	// Name returns a human-readable name for this discoverer
 	Name() string
@@ -41,12 +42,12 @@ func NewMultiDiscoverer(discoverers ...Discoverer) *MultiDiscoverer {
 }
 
 // Discover tries each discoverer in order and combines all results
-func (m *MultiDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error) {
+func (m *MultiDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
 	var allTasks []graph.Task
 	var allErrors []error
 	
 	for _, discoverer := range m.discoverers {
-		result, err := discoverer.Discover(ctx, path, potentialDependencies)
+		result, err := discoverer.Discover(ctx, path, potentialDependencies, buildContext)
 		if err != nil {
 			allErrors = append(allErrors, err)
 			continue

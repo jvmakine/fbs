@@ -25,8 +25,8 @@ type PlanResult struct {
 // Plan discovers all build tasks in a git repository by traversing all directories
 // and running the provided discoverers on each directory. It processes directories
 // in bottom-up order so that subdirectory tasks can be passed as potential dependencies
-// to parent directory discoverers.
-func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
+// to parent directory discoverers. Context discoverers are run first to populate BuildContext.
+func Plan(ctx context.Context, discoverers []Discoverer, contextDiscoverers []ContextDiscoverer) (*PlanResult, error) {
 	// Find git root directory
 	rootDir, err := findGitRoot()
 	if err != nil {
@@ -76,6 +76,13 @@ func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 	// Map to store tasks discovered in each directory
 	tasksByDir := make(map[string][]graph.Task)
 	
+	// Map to store build context for each directory
+	contextsByDir := make(map[string]*BuildContext)
+	
+	// Create root build context
+	rootContext := NewBuildContext()
+	contextsByDir[rootDir] = rootContext
+	
 	// Process directories in bottom-up order
 	for _, dirPath := range validDirs {
 		// Check context cancellation
@@ -87,6 +94,19 @@ func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 		
 		scannedDirs = append(scannedDirs, dirPath)
 		
+		// Get or create build context for this directory
+		buildContext := getBuildContextForDirectory(dirPath, contextsByDir)
+		
+		// Run context discoverers to populate build context for this directory
+		for _, contextDisc := range contextDiscoverers {
+			if err := contextDisc.DiscoverContext(ctx, dirPath, buildContext); err != nil {
+				allErrors = append(allErrors, fmt.Errorf("context discoverer %s failed on %s: %w", contextDisc.Name(), dirPath, err))
+			}
+		}
+		
+		// Store the updated context for this directory
+		contextsByDir[dirPath] = buildContext
+		
 		// Collect potential dependencies from subdirectories
 		var potentialDeps []graph.Task
 		for subDir, tasks := range tasksByDir {
@@ -96,10 +116,10 @@ func Plan(ctx context.Context, discoverers []Discoverer) (*PlanResult, error) {
 			}
 		}
 		
-		// Run all discoverers on this directory with potential dependencies
+		// Run all discoverers on this directory with potential dependencies and build context
 		var dirTasks []graph.Task
 		for _, disc := range discoverers {
-			result, err := disc.Discover(ctx, dirPath, potentialDeps)
+			result, err := disc.Discover(ctx, dirPath, potentialDeps, buildContext)
 			if err != nil {
 				allErrors = append(allErrors, fmt.Errorf("discoverer %s failed on %s: %w", disc.Name(), dirPath, err))
 				continue
@@ -231,4 +251,31 @@ func isSkippableDir(dirName string) bool {
 	}
 	
 	return false
+}
+
+// getBuildContextForDirectory gets or creates a build context for the given directory
+// It copies context from the parent directory if available
+func getBuildContextForDirectory(dirPath string, contextsByDir map[string]*BuildContext) *BuildContext {
+	// If we already have context for this directory, return it
+	if context, exists := contextsByDir[dirPath]; exists {
+		return context
+	}
+	
+	// Find the parent directory that has context
+	parentDir := filepath.Dir(dirPath)
+	for parentDir != dirPath { // Stop when we reach the root
+		if parentContext, exists := contextsByDir[parentDir]; exists {
+			// Copy parent context for this directory
+			return parentContext.Copy()
+		}
+		nextParent := filepath.Dir(parentDir)
+		if nextParent == parentDir {
+			// Reached filesystem root
+			break
+		}
+		parentDir = nextParent
+	}
+	
+	// No parent context found, create new empty context
+	return NewBuildContext()
 }

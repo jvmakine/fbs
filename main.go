@@ -95,6 +95,11 @@ func runPlan(cmd PlanCmd) error {
 		return fmt.Errorf("failed to change to directory %s: %w", absDir, err)
 	}
 
+	// Create context discoverers
+	contextDiscoverers := []discoverer.ContextDiscoverer{
+		gradle.NewGradleContextDiscoverer(),
+	}
+
 	// Create discoverers
 	discoverers := []discoverer.Discoverer{
 		kotlin.NewKotlinDiscoverer(),
@@ -104,7 +109,7 @@ func runPlan(cmd PlanCmd) error {
 
 	// Plan the build graph
 	ctx := context.Background()
-	result, err := discoverer.Plan(ctx, discoverers)
+	result, err := discoverer.Plan(ctx, discoverers, contextDiscoverers)
 	if err != nil {
 		return fmt.Errorf("failed to plan build graph: %w", err)
 	}
@@ -144,6 +149,11 @@ func runExecute(directory string, taskType graph.TaskType) error {
 		return fmt.Errorf("failed to change to directory %s: %w", absDir, err)
 	}
 
+	// Create context discoverers
+	contextDiscoverers := []discoverer.ContextDiscoverer{
+		gradle.NewGradleContextDiscoverer(),
+	}
+
 	// Create discoverers
 	discoverers := []discoverer.Discoverer{
 		kotlin.NewKotlinDiscoverer(),
@@ -153,7 +163,7 @@ func runExecute(directory string, taskType graph.TaskType) error {
 
 	// Plan the build graph
 	ctx := context.Background()
-	result, err := discoverer.Plan(ctx, discoverers)
+	result, err := discoverer.Plan(ctx, discoverers, contextDiscoverers)
 	if err != nil {
 		return fmt.Errorf("failed to plan build graph: %w", err)
 	}

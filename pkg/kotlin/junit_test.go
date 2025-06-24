@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"fbs/pkg/discoverer"
 	"fbs/pkg/graph"
 )
 
@@ -17,7 +18,7 @@ func TestJunitDiscoverer_Discover(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	discoverer := NewJunitDiscoverer()
+	jd := NewJunitDiscoverer()
 	ctx := context.Background()
 
 	// Test 1: Directory with JUnit test files
@@ -55,7 +56,8 @@ class ExampleTest {
 		t.Fatalf("Failed to create non-test file: %v", err)
 	}
 
-	result, err := discoverer.Discover(ctx, testDir, []graph.Task{})
+	buildContext := discoverer.NewBuildContext()
+	result, err := jd.Discover(ctx, testDir, []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -85,7 +87,7 @@ class ExampleTest {
 		t.Fatalf("Failed to create empty dir: %v", err)
 	}
 
-	result, err = discoverer.Discover(ctx, emptyDir, []graph.Task{})
+	result, err = jd.Discover(ctx, emptyDir, []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}

@@ -14,10 +14,10 @@ import (
 // MockPlanDiscoverer for testing Plan functionality
 type MockPlanDiscoverer struct {
 	name         string
-	discoverFunc func(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error)
+	discoverFunc func(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error)
 }
 
-func NewMockPlanDiscoverer(name string, discoverFunc func(context.Context, string, []graph.Task) (*DiscoveryResult, error)) *MockPlanDiscoverer {
+func NewMockPlanDiscoverer(name string, discoverFunc func(context.Context, string, []graph.Task, *BuildContext) (*DiscoveryResult, error)) *MockPlanDiscoverer {
 	return &MockPlanDiscoverer{
 		name:         name,
 		discoverFunc: discoverFunc,
@@ -28,9 +28,9 @@ func (m *MockPlanDiscoverer) Name() string {
 	return m.name
 }
 
-func (m *MockPlanDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error) {
+func (m *MockPlanDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
 	if m.discoverFunc != nil {
-		return m.discoverFunc(ctx, path, potentialDependencies)
+		return m.discoverFunc(ctx, path, potentialDependencies, buildContext)
 	}
 	return &DiscoveryResult{
 		Tasks: []graph.Task{},
@@ -173,7 +173,7 @@ func TestPlan_MockDiscoverers(t *testing.T) {
 	// Create mock discoverers
 	taskCount := 0
 	kotlinDiscoverer := NewMockPlanDiscoverer("KotlinTest",
-		func(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error) {
+		func(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
 			// Only create tasks for src and lib directories
 			if filepath.Base(path) == "src" || filepath.Base(path) == "lib" {
 				taskCount++
@@ -196,7 +196,7 @@ func TestPlan_MockDiscoverers(t *testing.T) {
 		})
 	
 	goDiscoverer := NewMockPlanDiscoverer("GoTest",
-		func(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error) {
+		func(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
 			// Only create task for root directory
 			if path == tempDir {
 				taskCount++
@@ -221,7 +221,7 @@ func TestPlan_MockDiscoverers(t *testing.T) {
 	discoverers := []Discoverer{kotlinDiscoverer, goDiscoverer}
 	
 	ctx := context.Background()
-	result, err := Plan(ctx, discoverers)
+	result, err := Plan(ctx, discoverers, []ContextDiscoverer{})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestPlan_ContextCancellation(t *testing.T) {
 	
 	// Create a discoverer that never returns tasks
 	slowDiscoverer := NewMockPlanDiscoverer("Slow",
-		func(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error) {
+		func(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
 			return &DiscoveryResult{
 				Tasks: []graph.Task{},
 				Path:  path,
@@ -291,7 +291,7 @@ func TestPlan_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 	
-	_, err = Plan(ctx, discoverers)
+	_, err = Plan(ctx, discoverers, []ContextDiscoverer{})
 	if err == nil {
 		t.Error("Expected error due to context cancellation")
 	}
@@ -305,7 +305,7 @@ func TestPlan_ContextCancellation(t *testing.T) {
 func TestPlan_EmptyDiscoverers(t *testing.T) {
 	// Test with no discoverers
 	ctx := context.Background()
-	result, err := Plan(ctx, []Discoverer{})
+	result, err := Plan(ctx, []Discoverer{}, []ContextDiscoverer{})
 	if err != nil {
 		t.Fatalf("Plan with empty discoverers failed: %v", err)
 	}

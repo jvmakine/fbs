@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"fbs/pkg/discoverer"
 	"fbs/pkg/graph"
 	"fbs/pkg/kotlin"
 )
@@ -18,7 +19,7 @@ func TestGradleDiscoverer_Discover(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	discoverer := NewGradleDiscoverer()
+	gradleDiscoverer := NewGradleDiscoverer()
 	ctx := context.Background()
 
 	// Test 1: Directory with build.gradle.kts file
@@ -46,7 +47,8 @@ dependencies {
 		t.Fatalf("Failed to create build file: %v", err)
 	}
 
-	result, err := discoverer.Discover(ctx, gradleDir, []graph.Task{})
+	buildContext := discoverer.NewBuildContext()
+	result, err := gradleDiscoverer.Discover(ctx, gradleDir, []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}
@@ -76,7 +78,7 @@ dependencies {
 		t.Fatalf("Failed to create empty dir: %v", err)
 	}
 
-	result, err = discoverer.Discover(ctx, emptyDir, []graph.Task{})
+	result, err = gradleDiscoverer.Discover(ctx, emptyDir, []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Discover failed: %v", err)
 	}

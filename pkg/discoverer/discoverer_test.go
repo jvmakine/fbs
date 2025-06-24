@@ -10,10 +10,10 @@ import (
 // MockDiscoverer implements the Discoverer interface for testing
 type MockDiscoverer struct {
 	name         string
-	discoverFunc func(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error)
+	discoverFunc func(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error)
 }
 
-func NewMockDiscoverer(name string, discoverFunc func(context.Context, string, []graph.Task) (*DiscoveryResult, error)) *MockDiscoverer {
+func NewMockDiscoverer(name string, discoverFunc func(context.Context, string, []graph.Task, *BuildContext) (*DiscoveryResult, error)) *MockDiscoverer {
 	return &MockDiscoverer{
 		name:         name,
 		discoverFunc: discoverFunc,
@@ -24,9 +24,9 @@ func (m *MockDiscoverer) Name() string {
 	return m.name
 }
 
-func (m *MockDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error) {
+func (m *MockDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
 	if m.discoverFunc != nil {
-		return m.discoverFunc(ctx, path, potentialDependencies)
+		return m.discoverFunc(ctx, path, potentialDependencies, buildContext)
 	}
 	return &DiscoveryResult{
 		Tasks: []graph.Task{},
@@ -75,7 +75,7 @@ func TestMultiDiscoverer_Discover(t *testing.T) {
 	
 	// Create mock discoverers
 	jsDiscoverer := NewMockDiscoverer("JavaScript", 
-		func(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error) {
+		func(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
 			if path == "package.json" || path == "src/index.js" {
 				return &DiscoveryResult{
 					Tasks: []graph.Task{
@@ -92,7 +92,7 @@ func TestMultiDiscoverer_Discover(t *testing.T) {
 		})
 	
 	goDiscoverer := NewMockDiscoverer("Go",
-		func(ctx context.Context, path string, potentialDependencies []graph.Task) (*DiscoveryResult, error) {
+		func(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
 			if path == "go.mod" || path == "main.go" {
 				return &DiscoveryResult{
 					Tasks: []graph.Task{
@@ -110,7 +110,8 @@ func TestMultiDiscoverer_Discover(t *testing.T) {
 	multiDiscoverer := NewMultiDiscoverer(jsDiscoverer, goDiscoverer)
 	
 	// Test JavaScript discovery (should find JS tasks)
-	result, err := multiDiscoverer.Discover(ctx, "package.json", []graph.Task{})
+	buildContext := NewBuildContext()
+	result, err := multiDiscoverer.Discover(ctx, "package.json", []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -124,7 +125,7 @@ func TestMultiDiscoverer_Discover(t *testing.T) {
 	}
 	
 	// Test Go discovery (should find Go tasks)
-	result, err = multiDiscoverer.Discover(ctx, "go.mod", []graph.Task{})
+	result, err = multiDiscoverer.Discover(ctx, "go.mod", []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -138,7 +139,7 @@ func TestMultiDiscoverer_Discover(t *testing.T) {
 	}
 	
 	// Test unknown file type (both discoverers return empty)
-	result, err = multiDiscoverer.Discover(ctx, "unknown.txt", []graph.Task{})
+	result, err = multiDiscoverer.Discover(ctx, "unknown.txt", []graph.Task{}, buildContext)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}

@@ -26,7 +26,7 @@ func (d *GradleDiscoverer) Name() string {
 
 // Discover finds build.gradle.kt files and creates Gradle project tasks
 // It also injects KotlinCompile tasks as dependencies of JunitTest tasks in subdirectories
-func (d *GradleDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task) (*discoverer.DiscoveryResult, error) {
+func (d *GradleDiscoverer) Discover(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *discoverer.BuildContext) (*discoverer.DiscoveryResult, error) {
 	// Check if path exists
 	info, err := os.Stat(path)
 	if err != nil {
