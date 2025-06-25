@@ -16,10 +16,11 @@ import (
 )
 
 type CLI struct {
-	Version bool      `short:"v" help:"Show version information"`
-	Plan    PlanCmd   `cmd:"" help:"Plan and print the build graph"`
-	Build   BuildCmd  `cmd:"" help:"Execute build tasks in the specified directory"`
-	Test    TestCmd   `cmd:"" help:"Execute test tasks in the specified directory"`
+	Version bool     `short:"v" help:"Show version information"`
+	Plan    PlanCmd  `cmd:"" help:"Plan and print the build graph"`
+	Build   BuildCmd `cmd:"" help:"Execute build tasks in the specified directory"`
+	Test    TestCmd  `cmd:"" help:"Execute test tasks in the specified directory"`
+	Deps    DepsCmd  `cmd:"" help:"Execute dependency tasks in the specified directory"`
 }
 
 type PlanCmd struct {
@@ -32,6 +33,10 @@ type BuildCmd struct {
 
 type TestCmd struct {
 	Directory string `arg:"" optional:"" help:"Directory to test (defaults to current directory)"`
+}
+
+type DepsCmd struct {
+	Directory string `arg:"" optional:"" help:"Directory to download dependencies for (defaults to current directory)"`
 }
 
 func main() {
@@ -53,6 +58,12 @@ func main() {
 		}
 	case "test <directory>", "test":
 		err := runExecute(cli.Test.Directory, graph.TaskTypeTest)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "deps <directory>", "deps":
+		err := runExecute(cli.Deps.Directory, graph.TaskTypeDeps)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -209,11 +220,17 @@ func filterTasksByTypeAndDirectory(tasks []graph.Task, taskType graph.TaskType, 
 	var filtered []graph.Task
 	for _, task := range tasks {
 		if task.TaskType() == taskType {
-			// Check if task is in the specified directory or a subdirectory
-			taskDir := task.Directory()
-			relPath, err := filepath.Rel(baseDir, taskDir)
-			if err == nil && !strings.HasPrefix(relPath, "..") {
+			// For deps tasks, include all from the same compilation root regardless of directory
+			// since they may be stored in cache directories outside the project
+			if taskType == graph.TaskTypeDeps {
 				filtered = append(filtered, task)
+			} else {
+				// For other tasks, check if task is in the specified directory or a subdirectory
+				taskDir := task.Directory()
+				relPath, err := filepath.Rel(baseDir, taskDir)
+				if err == nil && !strings.HasPrefix(relPath, "..") {
+					filtered = append(filtered, task)
+				}
 			}
 		}
 	}
@@ -353,6 +370,7 @@ func printTask(task graph.Task, indent int, baseDir string) {
 	blue := "\033[34m"
 	yellow := "\033[33m"
 	cyan := "\033[36m"
+	magenta := "\033[35m"
 	reset := "\033[0m"
 
 	// Convert absolute path to relative path
@@ -370,6 +388,8 @@ func printTask(task graph.Task, indent int, baseDir string) {
 	taskTypeColor := yellow
 	if task.TaskType() == graph.TaskTypeTest {
 		taskTypeColor = cyan
+	} else if task.TaskType() == graph.TaskTypeDeps {
+		taskTypeColor = magenta
 	}
 
 	fmt.Printf("%s- %s%s%s %s[%s]%s %s(%s)%s %s%s%s\n", 
@@ -395,6 +415,8 @@ func printTask(task graph.Task, indent int, baseDir string) {
 			depTaskTypeColor := yellow
 			if dep.TaskType() == graph.TaskTypeTest {
 				depTaskTypeColor = cyan
+			} else if dep.TaskType() == graph.TaskTypeDeps {
+				depTaskTypeColor = magenta
 			}
 
 			fmt.Printf("%s    -> %s%s%s %s[%s]%s %s(%s)%s %s%s%s\n", 

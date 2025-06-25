@@ -77,7 +77,7 @@ func (a *ArtifactDownload) Directory() string {
 
 // TaskType returns the type of this task
 func (a *ArtifactDownload) TaskType() graph.TaskType {
-	return graph.TaskTypeBuild
+	return graph.TaskTypeDeps
 }
 
 // Execute runs the artifact download task

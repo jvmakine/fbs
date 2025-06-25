@@ -12,6 +12,8 @@ const (
 	TaskTypeBuild TaskType = "build"
 	// TaskTypeTest represents tasks that run tests
 	TaskTypeTest TaskType = "test"
+	// TaskTypeDeps represents tasks that download/manage dependencies
+	TaskTypeDeps TaskType = "deps"
 )
 
 // TaskResult represents the result of executing a task
