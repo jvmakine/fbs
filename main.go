@@ -183,33 +183,96 @@ func runExecute(directory string, taskType graph.TaskType) error {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Execute the tasks
-	runner := graph.NewRunner(tempDir)
-	execResults, err := runner.Execute(ctx, executionGraph)
-	if err != nil {
-		return fmt.Errorf("execution failed: %w", err)
-	}
+	// Color constants
+	const (
+		green  = "\033[32m"
+		orange = "\033[33m"
+		red    = "\033[31m"
+		reset  = "\033[0m"
+	)
 
-	// Print execution results
-	fmt.Printf("Executed %d %s tasks:\n", len(execResults), taskType)
-	for _, result := range execResults {
-		status := "✓"
-		if result.Result.Error != nil {
-			status = "✗"
+	// Get all tasks in execution order for display
+	orderedTasks, err := executionGraph.TopologicalSort()
+	if err != nil {
+		return fmt.Errorf("failed to sort tasks: %w", err)
+	}
+	
+	// Create task display tracking
+	taskLines := make(map[string]int) // Map task ID to line number
+	
+	// Initialize all tasks as pending and display them
+	for i, task := range orderedTasks {
+		taskLines[task.ID()] = i
+		
+		// Get display path for task
+		displayPath := ""
+		if _, ok := task.(*gradle.ArtifactDownload); ok {
+			// For artifact downloads, don't show the cache path
+			displayPath = ""
+		} else {
+			relPath, err := filepath.Rel(absDir, task.Directory())
+			if err != nil {
+				relPath = task.Directory()
+			}
+			if relPath == "" {
+				relPath = "."
+			}
+			displayPath = fmt.Sprintf(" (%s)", relPath)
 		}
 		
-		relPath, err := filepath.Rel(absDir, result.Task.Directory())
-		if err != nil {
-			relPath = result.Task.Directory()
+		fmt.Printf("  %s⏳%s %s%s\n", orange, reset, task.DisplayName(), displayPath)
+	}
+	
+	// Progress callback to update task status in place
+	progressCallback := func(task graph.Task, status string, finished bool) {
+		if !finished {
+			return // Only update when task is finished
 		}
-		if relPath == "" {
-			relPath = "."
+		
+		lineNum := taskLines[task.ID()]
+		
+		// Move cursor to the specific line and update it
+		fmt.Printf("\033[%dA", len(orderedTasks)-lineNum) // Move up to the task's line
+		fmt.Printf("\r\033[K") // Clear the line
+		
+		// Determine status symbol and color
+		var statusSymbol, color string
+		if status == "failed" {
+			statusSymbol = "✗"
+			color = red
+		} else {
+			statusSymbol = "✓"
+			color = green
 		}
+		
+		// Get display path for task
+		displayPath := ""
+		if _, ok := task.(*gradle.ArtifactDownload); ok {
+			// For artifact downloads, don't show the cache path
+			displayPath = ""
+		} else {
+			relPath, err := filepath.Rel(absDir, task.Directory())
+			if err != nil {
+				relPath = task.Directory()
+			}
+			if relPath == "" {
+				relPath = "."
+			}
+			displayPath = fmt.Sprintf(" (%s)", relPath)
+		}
+		
+		fmt.Printf("  %s%s%s %s%s\n", color, statusSymbol, reset, task.DisplayName(), displayPath)
+		
+		// Move cursor back to the bottom
+		fmt.Printf("\033[%dB", len(orderedTasks)-lineNum-1)
+	}
 
-		fmt.Printf("  %s %s (%s)\n", status, result.Task.Name(), relPath)
-		if result.Result.Error != nil {
-			fmt.Printf("    Error: %v\n", result.Result.Error)
-		}
+	// Execute the tasks with progress
+	runner := graph.NewRunner(tempDir)
+	_, err = runner.ExecuteWithProgress(ctx, executionGraph, progressCallback)
+	
+	if err != nil {
+		return fmt.Errorf("execution failed: %w", err)
 	}
 
 	return nil

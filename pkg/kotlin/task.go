@@ -192,3 +192,8 @@ func (k *KotlinCompile) GetKotlinFiles() []string {
 func (k *KotlinCompile) AddDependency(task graph.Task) {
 	k.dependencies = append(k.dependencies, task)
 }
+
+// DisplayName returns a detailed display name
+func (k *KotlinCompile) DisplayName() string {
+	return k.Name()
+}

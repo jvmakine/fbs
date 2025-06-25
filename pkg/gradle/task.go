@@ -152,6 +152,11 @@ func (g *GradleProject) GetBuildFile() string {
 	return g.buildFile
 }
 
+// DisplayName returns a detailed display name
+func (g *GradleProject) DisplayName() string {
+	return g.Name()
+}
+
 // copyDirectory recursively copies a directory
 func copyDirectory(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {

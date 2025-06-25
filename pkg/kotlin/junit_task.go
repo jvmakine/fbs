@@ -84,18 +84,29 @@ func (j *JunitTest) Execute(ctx context.Context, workDir string, dependencyInput
 	// Build classpath from dependency inputs
 	var classpathParts []string
 	for _, dep := range dependencyInputs {
+		// Add compiled classes directories
 		classesDir := filepath.Join(dep.OutputDir, "classes")
 		if _, err := os.Stat(classesDir); err == nil {
 			classpathParts = append(classpathParts, classesDir)
 		}
+		
+		// Add JAR files from dependencies
+		for _, file := range dep.Files {
+			if strings.HasSuffix(file, ".jar") {
+				var jarPath string
+				if filepath.IsAbs(file) {
+					// Absolute path (e.g., from artifact downloads)
+					jarPath = file
+				} else {
+					// Relative path (from other build tasks)
+					jarPath = filepath.Join(dep.OutputDir, file)
+				}
+				if _, err := os.Stat(jarPath); err == nil {
+					classpathParts = append(classpathParts, jarPath)
+				}
+			}
+		}
 	}
-	
-	// Add JUnit JARs to classpath (assuming they're available)
-	// In a real implementation, these would come from dependency management
-	junitJars := []string{
-		"junit-platform-console-standalone.jar", // This would need to be resolved
-	}
-	classpathParts = append(classpathParts, junitJars...)
 	
 	classpath := strings.Join(classpathParts, ":")
 	
@@ -163,4 +174,9 @@ func (j *JunitTest) GetSourceDir() string {
 // GetClassName returns the class name being tested
 func (j *JunitTest) GetClassName() string {
 	return j.className
+}
+
+// DisplayName returns a detailed display name including the test file
+func (j *JunitTest) DisplayName() string {
+	return fmt.Sprintf("junit-test (%s)", j.testFile)
 }

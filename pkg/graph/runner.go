@@ -16,6 +16,9 @@ type ExecutionResult struct {
 	CacheHit   bool // Whether this result came from cache
 }
 
+// ProgressCallback is called when task execution status changes
+type ProgressCallback func(task Task, status string, finished bool)
+
 // Runner executes tasks in a graph
 type Runner struct {
 	resultDir string
@@ -30,6 +33,11 @@ func NewRunner(resultDir string) *Runner {
 
 // Execute runs all tasks in the graph in topological order
 func (r *Runner) Execute(ctx context.Context, graph *Graph) ([]ExecutionResult, error) {
+	return r.ExecuteWithProgress(ctx, graph, nil)
+}
+
+// ExecuteWithProgress runs all tasks in the graph with progress callbacks
+func (r *Runner) ExecuteWithProgress(ctx context.Context, graph *Graph, progressCallback ProgressCallback) ([]ExecutionResult, error) {
 	// Get tasks in topological order
 	orderedTasks, err := graph.TopologicalSort()
 	if err != nil {
@@ -47,6 +55,11 @@ func (r *Runner) Execute(ctx context.Context, graph *Graph) ([]ExecutionResult, 
 		default:
 		}
 		
+		// Notify progress callback that task is starting
+		if progressCallback != nil {
+			progressCallback(task, "running", false)
+		}
+		
 		// Execute task
 		result, err := r.executeTask(ctx, task, executedTasks)
 		if err != nil {
@@ -55,6 +68,15 @@ func (r *Runner) Execute(ctx context.Context, graph *Graph) ([]ExecutionResult, 
 		
 		results = append(results, result)
 		executedTasks[task.ID()] = result
+		
+		// Notify progress callback that task is finished
+		if progressCallback != nil {
+			status := "completed"
+			if result.Result.Error != nil {
+				status = "failed"
+			}
+			progressCallback(task, status, true)
+		}
 		
 		// Stop execution if task failed
 		if result.Result.Error != nil {

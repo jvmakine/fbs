@@ -59,4 +59,7 @@ type Task interface {
 	// dependencyInputs contains the outputs from all dependency tasks
 	// It should return the relative paths to any files it creates
 	Execute(ctx context.Context, workDir string, dependencyInputs []DependencyInput) TaskResult
+	
+	// DisplayName returns a detailed display name for this task with context-specific information
+	DisplayName() string
 }

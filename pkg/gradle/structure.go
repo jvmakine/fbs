@@ -215,7 +215,38 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 		}
 	}
 	
-	// 5. Inject kotlin compile tasks as dependencies of junit test tasks
+	// 5. Add JUnit Console Launcher for test execution (if we have JUnit tests)
+	if len(junitTestTasks) > 0 {
+		// Create console launcher artifact task if not already created
+		var consoleLauncherTask *ArtifactDownload
+		
+		// Check if we already have a console launcher task
+		found := false
+		for _, task := range g.artifactTasks {
+			if task.GetName() == "junit-platform-console-standalone" {
+				consoleLauncherTask = task
+				found = true
+				break
+			}
+		}
+		
+		if !found {
+			consoleLauncherTask = NewArtifactDownload("org.junit.platform", "junit-platform-console-standalone", "1.10.0")
+			g.artifactTasks = append(g.artifactTasks, consoleLauncherTask)
+			
+			// Add to results if artifacts haven't been returned yet
+			if !g.artifactsReturned {
+				allTasks = append(allTasks, consoleLauncherTask)
+			}
+		}
+		
+		// Add console launcher as dependency to all JUnit test tasks
+		for _, junitTask := range junitTestTasks {
+			junitTask.AddDependency(consoleLauncherTask)
+		}
+	}
+	
+	// 6. Inject kotlin compile tasks as dependencies of junit test tasks
 	for _, junitTask := range junitTestTasks {
 		for _, kotlinTask := range kotlinCompileTasks {
 			// Check if this dependency doesn't already exist

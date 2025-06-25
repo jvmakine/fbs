@@ -209,3 +209,13 @@ func (a *ArtifactDownload) generateHash() string {
 	hasher.Write([]byte(a.localPath))
 	return fmt.Sprintf("%x", hasher.Sum(nil))
 }
+
+// DisplayName returns a detailed display name including the artifact coordinate
+func (a *ArtifactDownload) DisplayName() string {
+	return fmt.Sprintf("artifact-download (%s)", a.artifact)
+}
+
+// GetDisplayPath returns a clean display path without the full cache path
+func (a *ArtifactDownload) GetDisplayPath() string {
+	return a.artifact
+}

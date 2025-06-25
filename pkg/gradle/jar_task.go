@@ -179,3 +179,8 @@ func (j *JarCompile) generateHash() string {
 	}
 	return fmt.Sprintf("%x", hasher.Sum(nil))
 }
+
+// DisplayName returns a detailed display name
+func (j *JarCompile) DisplayName() string {
+	return j.Name()
+}
