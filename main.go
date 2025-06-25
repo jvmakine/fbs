@@ -177,12 +177,15 @@ func runExecute(directory string, taskType graph.TaskType, parallelWorkers int) 
 	// Create a new graph with only filtered tasks and their dependencies
 	executionGraph := createExecutionGraph(filteredTasks)
 
-	// Create a temporary directory for execution
-	tempDir, err := os.MkdirTemp("", "fbs-execution")
+	// Create a persistent cache directory for execution
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
+		return fmt.Errorf("failed to get user home directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	cacheDir := filepath.Join(homeDir, ".fbs", "cache")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return fmt.Errorf("failed to create cache directory: %w", err)
+	}
 
 	// Color constants
 	const (
@@ -225,7 +228,7 @@ func runExecute(directory string, taskType graph.TaskType, parallelWorkers int) 
 	}
 	
 	// Progress callback to update task status in place
-	progressCallback := func(task graph.Task, status string, finished bool) {
+	progressCallback := func(task graph.Task, status string, finished bool, cached bool) {
 		if !finished {
 			return // Only update when task is finished
 		}
@@ -241,6 +244,9 @@ func runExecute(directory string, taskType graph.TaskType, parallelWorkers int) 
 		if status == "failed" {
 			statusSymbol = "✗"
 			color = red
+		} else if cached {
+			statusSymbol = "↻"  // Cached symbol
+			color = "\033[36m"  // Cyan color for cached
 		} else {
 			statusSymbol = "✓"
 			color = green
@@ -269,7 +275,7 @@ func runExecute(directory string, taskType graph.TaskType, parallelWorkers int) 
 	}
 
 	// Execute the tasks with progress
-	runner := graph.NewRunner(tempDir)
+	runner := graph.NewRunner(cacheDir)
 	_, err = runner.ExecuteWithProgressParallel(ctx, executionGraph, progressCallback, parallelWorkers)
 	
 	if err != nil {

@@ -78,9 +78,12 @@ func (j *JarCompile) TaskType() graph.TaskType {
 
 // Execute runs the JAR compilation task
 func (j *JarCompile) Execute(ctx context.Context, workDir string, dependencyInputs []graph.DependencyInput) graph.TaskResult {
-	// Create output directory
-	outputDir := filepath.Dir(j.outputPath)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	// Create JAR file in the work directory (cache), not in the project directory
+	jarFileName := filepath.Base(j.outputPath)
+	jarPath := filepath.Join(workDir, jarFileName)
+	
+	// Create output directory in work dir
+	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return graph.TaskResult{
 			Error: fmt.Errorf("failed to create output directory: %w", err),
 		}
@@ -103,8 +106,8 @@ func (j *JarCompile) Execute(ctx context.Context, workDir string, dependencyInpu
 		}
 	}
 	
-	// Create JAR file using jar command
-	cmd := exec.CommandContext(ctx, "jar", "cf", j.outputPath)
+	// Create JAR file using jar command  
+	cmd := exec.CommandContext(ctx, "jar", "cf", jarPath)
 	
 	// Find the common classes directory to work from
 	var classesDir string
@@ -142,9 +145,9 @@ func (j *JarCompile) Execute(ctx context.Context, workDir string, dependencyInpu
 		}
 	}
 	
-	// Return the JAR file as output (absolute path for external dependencies)
+	// Return the JAR file as output (relative path for caching)
 	return graph.TaskResult{
-		Files: []string{j.outputPath},
+		Files: []string{jarFileName},
 	}
 }
 

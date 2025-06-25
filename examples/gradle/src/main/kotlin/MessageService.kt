@@ -1,5 +1,5 @@
 class MessageService {
     fun getGreeting(): String {
-        return "Hello, World!"
+        return "Hello,  World!"
     }
 }

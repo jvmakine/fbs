@@ -18,7 +18,7 @@ type ExecutionResult struct {
 }
 
 // ProgressCallback is called when task execution status changes
-type ProgressCallback func(task Task, status string, finished bool)
+type ProgressCallback func(task Task, status string, finished bool, cached bool)
 
 // Runner executes tasks in a graph
 type Runner struct {
@@ -73,7 +73,7 @@ func (r *Runner) executeSequential(ctx context.Context, graph *Graph, progressCa
 		
 		// Notify progress callback that task is starting
 		if progressCallback != nil {
-			progressCallback(task, "running", false)
+			progressCallback(task, "running", false, false)
 		}
 		
 		// Execute task
@@ -91,7 +91,7 @@ func (r *Runner) executeSequential(ctx context.Context, graph *Graph, progressCa
 			if result.Result.Error != nil {
 				status = "failed"
 			}
-			progressCallback(task, status, true)
+			progressCallback(task, status, true, result.CacheHit)
 		}
 		
 		// Stop execution if task failed
@@ -234,7 +234,7 @@ func (r *Runner) workerParallel(ctx context.Context, taskQueue <-chan Task, resu
 			
 			// Process the task
 			if progressCallback != nil {
-				progressCallback(task, "running", false)
+				progressCallback(task, "running", false, false)
 			}
 			
 			// Get current executed tasks for dependency resolution
@@ -255,7 +255,7 @@ func (r *Runner) workerParallel(ctx context.Context, taskQueue <-chan Task, resu
 				if result.Result.Error != nil {
 					status = "failed"
 				}
-				progressCallback(task, status, true)
+				progressCallback(task, status, true, result.CacheHit)
 			}
 			
 			// Send result
@@ -310,6 +310,12 @@ func (r *Runner) executeTask(ctx context.Context, task Task, executedTasks map[s
 	// Execute the task
 	taskResult := task.Execute(ctx, outputDir, dependencyInputs)
 	
+	// If the task failed, clean up the output directory to prevent caching failed results
+	if taskResult.Error != nil {
+		// Remove the output directory since we don't want to cache failed tasks
+		os.RemoveAll(outputDir)
+	}
+	
 	return ExecutionResult{
 		Task:      task,
 		TaskHash:  taskHash,
@@ -337,17 +343,25 @@ func (r *Runner) isCached(outputDir string) bool {
 
 // loadCachedResult loads a cached result from the output directory
 func (r *Runner) loadCachedResult(task Task, taskHash, outputDir string) (ExecutionResult, error) {
-	// List files in the output directory
-	entries, err := os.ReadDir(outputDir)
-	if err != nil {
-		return ExecutionResult{}, fmt.Errorf("failed to read cached output directory: %w", err)
-	}
-	
+	// Walk the output directory to find all files (including subdirectories)
 	var files []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			files = append(files, entry.Name())
+	err := filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
+		if !info.IsDir() {
+			// Get relative path from the output directory
+			relPath, err := filepath.Rel(outputDir, path)
+			if err != nil {
+				return err
+			}
+			files = append(files, relPath)
+		}
+		return nil
+	})
+	
+	if err != nil {
+		return ExecutionResult{}, fmt.Errorf("failed to walk cached output directory: %w", err)
 	}
 	
 	return ExecutionResult{
