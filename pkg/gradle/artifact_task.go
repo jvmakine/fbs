@@ -15,23 +15,30 @@ import (
 
 // ArtifactDownload represents a task that downloads an external artifact and its transitive dependencies
 type ArtifactDownload struct {
-	group       string
-	name        string
-	version     string
-	artifact    string // full coordinate like "group:name:version"
-	localPath   string // path in local gradle cache for main artifact
-	transitive  []*MavenArtifact // transitive dependencies
-	id          string
-	hash        string
+	group         string
+	name          string
+	version       string
+	artifact      string // full coordinate like "group:name:version"
+	localPath     string // path in local gradle cache for main artifact
+	transitive    []*MavenArtifact // transitive dependencies
+	repositories  []string // list of repository URLs to try
+	id            string
+	hash          string
 }
 
 // NewArtifactDownload creates a new artifact download task
-func NewArtifactDownload(group, name, version string) *ArtifactDownload {
+func NewArtifactDownload(group, name, version string, repositories []string) *ArtifactDownload {
+	// Default to Maven Central if no repositories configured
+	if len(repositories) == 0 {
+		repositories = []string{"https://repo1.maven.org/maven2"}
+	}
+	
 	task := &ArtifactDownload{
-		group:    group,
-		name:     name,
-		version:  version,
-		artifact: fmt.Sprintf("%s:%s:%s", group, name, version),
+		group:        group,
+		name:         name,
+		version:      version,
+		artifact:     fmt.Sprintf("%s:%s:%s", group, name, version),
+		repositories: repositories,
 	}
 	
 	// Generate local cache path (simplified gradle cache structure)
@@ -138,35 +145,49 @@ func (a *ArtifactDownload) downloadArtifact(group, name, version string) (string
 		return "", fmt.Errorf("failed to create cache directory: %w", err)
 	}
 	
-	// Construct download URL (using Maven Central as default)
-	downloadURL := fmt.Sprintf("https://repo1.maven.org/maven2/%s/%s/%s/%s-%s.jar",
-		strings.ReplaceAll(group, ".", "/"), name, version, name, version)
-	
-	// Download the artifact
-	resp, err := http.Get(downloadURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to download %s:%s:%s: %w", group, name, version, err)
+	// Try each repository until one works
+	var lastErr error
+	for _, repoURL := range a.repositories {
+		// Construct download URL for this repository
+		downloadURL := fmt.Sprintf("%s/%s/%s/%s/%s-%s.jar",
+			strings.TrimSuffix(repoURL, "/"),
+			strings.ReplaceAll(group, ".", "/"), name, version, name, version)
+		
+		// Try to download from this repository
+		resp, err := http.Get(downloadURL)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to download from %s: %w", repoURL, err)
+			continue
+		}
+		defer resp.Body.Close()
+		
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("failed to download from %s: HTTP %d", repoURL, resp.StatusCode)
+			continue
+		}
+		
+		// Successfully got the artifact, save it
+		file, err := os.Create(localPath)
+		if err != nil {
+			resp.Body.Close()
+			return "", fmt.Errorf("failed to create local file: %w", err)
+		}
+		
+		// Copy the content
+		_, err = io.Copy(file, resp.Body)
+		file.Close()
+		resp.Body.Close()
+		
+		if err != nil {
+			return "", fmt.Errorf("failed to save artifact: %w", err)
+		}
+		
+		return localPath, nil
 	}
-	defer resp.Body.Close()
 	
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to download %s:%s:%s: HTTP %d", group, name, version, resp.StatusCode)
-	}
-	
-	// Create the local file
-	file, err := os.Create(localPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create local file: %w", err)
-	}
-	defer file.Close()
-	
-	// Copy the content
-	_, err = io.Copy(file, resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to save artifact: %w", err)
-	}
-	
-	return localPath, nil
+	// If we get here, all repositories failed
+	return "", fmt.Errorf("failed to download %s:%s:%s from any repository: %w", group, name, version, lastErr)
 }
 
 // GetArtifact returns the artifact coordinate
@@ -207,6 +228,9 @@ func (a *ArtifactDownload) generateHash() string {
 	hasher := sha256.New()
 	hasher.Write([]byte(a.artifact))
 	hasher.Write([]byte(a.localPath))
+	for _, repo := range a.repositories {
+		hasher.Write([]byte(repo))
+	}
 	return fmt.Sprintf("%x", hasher.Sum(nil))
 }
 

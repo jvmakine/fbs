@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"fbs/pkg/config"
 	"fbs/pkg/discoverer"
 	"fbs/pkg/graph"
 	"fbs/pkg/kotlin"
@@ -95,8 +96,20 @@ func (g *GradleCompilationRoot) GetBuildContext(dir string) *discoverer.BuildCon
 }
 
 // GetTaskDependencies returns task dependencies for the given directory and discovered tasks
-func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Task) []graph.Task {
+func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Task, buildContext *discoverer.BuildContext) []graph.Task {
 	var allTasks []graph.Task
+	
+	// Get repository configuration from BuildContext
+	var repositories []string
+	if buildContext != nil {
+		if configObj := buildContext.GetByExample((*config.Config)(nil)); configObj != nil {
+			cfg := configObj.(*config.Config)
+			var artifactConfig config.ArtifactDownloadConfig
+			if err := cfg.GetDiscovererConfig("artifact-download", &artifactConfig); err == nil {
+				repositories = artifactConfig.Repositories
+			}
+		}
+	}
 	
 	// Separate different types of tasks
 	var kotlinCompileTasks []*kotlin.KotlinCompile
@@ -177,7 +190,7 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 			}
 			
 			if group != "" && name != "" && version != "" {
-				artifactTask := NewArtifactDownload(group, name, version)
+				artifactTask := NewArtifactDownload(group, name, version, repositories)
 				g.artifactTasks = append(g.artifactTasks, artifactTask)
 			}
 		}
@@ -231,7 +244,7 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 		}
 		
 		if !found {
-			consoleLauncherTask = NewArtifactDownload("org.junit.platform", "junit-platform-console-standalone", "1.10.0")
+			consoleLauncherTask = NewArtifactDownload("org.junit.platform", "junit-platform-console-standalone", "1.10.0", repositories)
 			g.artifactTasks = append(g.artifactTasks, consoleLauncherTask)
 			
 			// Add to results if artifacts haven't been returned yet

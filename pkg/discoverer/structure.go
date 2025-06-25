@@ -12,7 +12,7 @@ type CompilationRoot interface {
 	GetBuildContext(dir string) *BuildContext
 	
 	// GetTaskDependencies returns task dependencies that should be added to tasks discovered in the given directory
-	GetTaskDependencies(dir string, tasks []graph.Task) []graph.Task
+	GetTaskDependencies(dir string, tasks []graph.Task, buildContext *BuildContext) []graph.Task
 	
 	// GetRootDir returns the root directory of this compilation root
 	GetRootDir() string

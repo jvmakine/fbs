@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"fbs/pkg/config"
 	"fbs/pkg/graph"
 )
 
@@ -31,6 +32,12 @@ func PlanWithStructure(ctx context.Context, dir string, discoverers []Discoverer
 	// Clean the directory path
 	dir = filepath.Clean(dir)
 	
+	// Load configuration from directory hierarchy
+	configuration, err := config.LoadConfiguration(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load configuration: %w", err)
+	}
+	
 	// Create new graph
 	buildGraph := graph.NewGraph()
 	var allErrors []error
@@ -41,7 +48,7 @@ func PlanWithStructure(ctx context.Context, dir string, discoverers []Discoverer
 	
 	// First, collect all valid directories under the specified directory
 	var validDirs []string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			allErrors = append(allErrors, fmt.Errorf("error accessing path %s: %w", path, err))
 			return nil // Continue walking
@@ -104,6 +111,9 @@ func PlanWithStructure(ctx context.Context, dir string, discoverers []Discoverer
 		// Get build context from the compilation root
 		buildContext := compilationRoot.GetBuildContext(dirPath)
 		
+		// Add configuration to the build context
+		buildContext.Set(configuration)
+		
 		// Collect potential dependencies from subdirectories
 		var potentialDeps []graph.Task
 		for subDir, tasks := range tasksByDir {
@@ -130,7 +140,7 @@ func PlanWithStructure(ctx context.Context, dir string, discoverers []Discoverer
 		}
 		
 		// Let the compilation root process task dependencies
-		dirTasks = compilationRoot.GetTaskDependencies(dirPath, dirTasks)
+		dirTasks = compilationRoot.GetTaskDependencies(dirPath, dirTasks, buildContext)
 		
 		// Add tasks to the graph and track their compilation roots
 		for _, task := range dirTasks {
