@@ -101,7 +101,7 @@ func (d *GradleContextDiscoverer) DiscoverContext(ctx context.Context, path stri
 	}
 
 	// Parse the version catalog
-	versions, err := d.parseVersionCatalog(versionCatalogPath)
+	versions, err := d.ParseVersionCatalog(versionCatalogPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse version catalog at %s: %w", versionCatalogPath, err)
 	}
@@ -111,8 +111,8 @@ func (d *GradleContextDiscoverer) DiscoverContext(ctx context.Context, path stri
 	return nil
 }
 
-// parseVersionCatalog parses a Gradle version catalog TOML file
-func (d *GradleContextDiscoverer) parseVersionCatalog(filePath string) (*GradleArtefactVersions, error) {
+// ParseVersionCatalog parses a Gradle version catalog TOML file
+func (d *GradleContextDiscoverer) ParseVersionCatalog(filePath string) (*GradleArtefactVersions, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read version catalog: %w", err)

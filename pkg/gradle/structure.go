@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"fbs/pkg/discoverer"
 	"fbs/pkg/graph"
@@ -38,8 +39,13 @@ func (d *GradleStructureDiscoverer) IsCompilationRoot(ctx context.Context, dir s
 
 // GradleCompilationRoot represents a Gradle project compilation root
 type GradleCompilationRoot struct {
-	rootDir string
-	versions *GradleArtefactVersions
+	rootDir          string
+	versions         *GradleArtefactVersions
+	buildInfo        *GradleBuildInfo
+	jarTask          *JarCompile         // Cached JAR task
+	artifactTasks    []*ArtifactDownload // Cached artifact tasks
+	jarTaskReturned  bool                // Track if JAR task has been returned
+	artifactsReturned bool               // Track if artifact tasks have been returned
 }
 
 // NewGradleCompilationRoot creates a new Gradle compilation root
@@ -50,6 +56,9 @@ func NewGradleCompilationRoot(rootDir string) *GradleCompilationRoot {
 	
 	// Try to load version catalog from the project root
 	root.loadVersionCatalog()
+	
+	// Try to parse build file
+	root.loadBuildInfo()
 	
 	return root
 }
@@ -77,20 +86,108 @@ func (g *GradleCompilationRoot) GetBuildContext(dir string) *discoverer.BuildCon
 
 // GetTaskDependencies returns task dependencies for the given directory and discovered tasks
 func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Task) []graph.Task {
-	// Separate KotlinCompile and JunitTest tasks
+	var allTasks []graph.Task
+	
+	// Separate different types of tasks
 	var kotlinCompileTasks []*kotlin.KotlinCompile
 	var junitTestTasks []*kotlin.JunitTest
+	var mainKotlinTasks []*kotlin.KotlinCompile
 	
 	for _, task := range tasks {
 		switch t := task.(type) {
 		case *kotlin.KotlinCompile:
 			kotlinCompileTasks = append(kotlinCompileTasks, t)
+			// Check if this is a main source compile task
+			if strings.Contains(t.GetSourceDir(), "src/main") {
+				mainKotlinTasks = append(mainKotlinTasks, t)
+			}
 		case *kotlin.JunitTest:
 			junitTestTasks = append(junitTestTasks, t)
 		}
+		allTasks = append(allTasks, task)
 	}
 	
-	// Inject all KotlinCompile tasks as dependencies of all JunitTest tasks
+	// 1. Create or reuse JAR compilation task for main sources
+	if len(mainKotlinTasks) > 0 && g.jarTask == nil {
+		// Create JAR task only once per compilation root
+		g.jarTask = NewJarCompile(g.rootDir, []string{}) // Start with empty sources
+	}
+	
+	// Add main kotlin tasks as dependencies to JAR task if it exists
+	if g.jarTask != nil {
+		for _, kotlinTask := range mainKotlinTasks {
+			g.jarTask.AddDependency(kotlinTask)
+		}
+		// Only add JAR task to results once
+		if len(mainKotlinTasks) > 0 && !g.jarTaskReturned {
+			allTasks = append(allTasks, g.jarTask)
+			g.jarTaskReturned = true
+		}
+	}
+	
+	// 2. Create external artifact download tasks (once per compilation root)
+	if len(g.artifactTasks) == 0 && g.buildInfo != nil {
+		for _, dep := range g.buildInfo.GetExternalDependencies() {
+			var group, name, version string
+			
+			// Check if this is a version catalog reference
+			if dep.Group == "" && dep.Name != "" && g.versions != nil {
+				// This is a libs.xyz reference, resolve it
+				// Try with the exact name first
+				if lib, exists := g.versions.GetLibrary(dep.Name); exists {
+					group = lib.Group
+					name = lib.Name
+					version = lib.Version
+				} else {
+					// Try converting dots to hyphens (common gradle convention)
+					hyphenatedName := strings.ReplaceAll(dep.Name, ".", "-")
+					if lib, exists := g.versions.GetLibrary(hyphenatedName); exists {
+						group = lib.Group
+						name = lib.Name
+						version = lib.Version
+					}
+				}
+			} else if dep.Group != "" && dep.Name != "" {
+				// This is a direct dependency
+				group = dep.Group
+				name = dep.Name
+				version = dep.Version
+				// Resolve version from version catalog if needed
+				if version == "" && g.versions != nil {
+					version = g.versions.GetLibraryVersion(dep.Group + "-" + dep.Name)
+				}
+			}
+			
+			if group != "" && name != "" && version != "" {
+				artifactTask := NewArtifactDownload(group, name, version)
+				g.artifactTasks = append(g.artifactTasks, artifactTask)
+			}
+		}
+	}
+	
+	// Add artifact tasks to results (they're shared across all directories, but only once)
+	if len(g.artifactTasks) > 0 && !g.artifactsReturned {
+		for _, artifactTask := range g.artifactTasks {
+			allTasks = append(allTasks, artifactTask)
+		}
+		g.artifactsReturned = true
+	}
+	
+	// 3. Add external dependencies to all compilation tasks
+	for _, kotlinTask := range kotlinCompileTasks {
+		for _, artifactTask := range g.artifactTasks {
+			kotlinTask.AddDependency(artifactTask)
+		}
+	}
+	
+	// 4. Add JAR task as dependency for test tasks (if it exists)
+	if g.jarTask != nil {
+		for _, junitTask := range junitTestTasks {
+			junitTask.AddDependency(g.jarTask)
+		}
+	}
+	
+	// 5. Inject kotlin compile tasks as dependencies of junit test tasks
 	for _, junitTask := range junitTestTasks {
 		for _, kotlinTask := range kotlinCompileTasks {
 			// Check if this dependency doesn't already exist
@@ -100,8 +197,7 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 		}
 	}
 	
-	// Return all tasks (they have been modified in place with dependencies)
-	return tasks
+	return allTasks
 }
 
 // loadVersionCatalog loads the Gradle version catalog if it exists
@@ -112,13 +208,28 @@ func (g *GradleCompilationRoot) loadVersionCatalog() {
 	}
 	
 	contextDiscoverer := NewGradleContextDiscoverer()
-	versions, err := contextDiscoverer.parseVersionCatalog(versionCatalogPath)
+	versions, err := contextDiscoverer.ParseVersionCatalog(versionCatalogPath)
 	if err != nil {
 		return // Failed to parse, continue without versions
 	}
 	
 	versions.ProjectDir = g.rootDir
 	g.versions = versions
+}
+
+// loadBuildInfo loads and parses the build.gradle.kts file
+func (g *GradleCompilationRoot) loadBuildInfo() {
+	buildFilePath := filepath.Join(g.rootDir, "build.gradle.kts")
+	if _, err := os.Stat(buildFilePath); err != nil {
+		return // No build file found
+	}
+	
+	buildInfo, err := ParseGradleBuildFile(buildFilePath)
+	if err != nil {
+		return // Failed to parse, continue without build info
+	}
+	
+	g.buildInfo = buildInfo
 }
 
 // hasDependency checks if a JunitTest task already has a specific KotlinCompile task as a dependency
