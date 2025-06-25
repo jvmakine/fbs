@@ -261,19 +261,32 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 
 // loadVersionCatalog loads the Gradle version catalog if it exists
 func (g *GradleCompilationRoot) loadVersionCatalog() {
-	versionCatalogPath := filepath.Join(g.rootDir, "gradle", "libs.versions.toml")
-	if _, err := os.Stat(versionCatalogPath); err != nil {
-		return // No version catalog found
-	}
+	// Search upward from the compilation root to find version catalog
+	currentDir := g.rootDir
 	
-	contextDiscoverer := NewGradleContextDiscoverer()
-	versions, err := contextDiscoverer.ParseVersionCatalog(versionCatalogPath)
-	if err != nil {
-		return // Failed to parse, continue without versions
+	for {
+		versionCatalogPath := filepath.Join(currentDir, "gradle", "libs.versions.toml")
+		if _, err := os.Stat(versionCatalogPath); err == nil {
+			// Found version catalog, parse it
+			contextDiscoverer := NewGradleContextDiscoverer()
+			versions, err := contextDiscoverer.ParseVersionCatalog(versionCatalogPath)
+			if err != nil {
+				return // Failed to parse, continue without versions
+			}
+			
+			versions.ProjectDir = g.rootDir
+			g.versions = versions
+			return
+		}
+		
+		// Move up one directory
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			// Reached filesystem root
+			break
+		}
+		currentDir = parentDir
 	}
-	
-	versions.ProjectDir = g.rootDir
-	g.versions = versions
 }
 
 // loadBuildInfo loads and parses the build.gradle.kts file
