@@ -124,8 +124,10 @@ func (j *JunitTest) Execute(ctx context.Context, workDir string, dependencyInput
 	
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// Parse the JUnit output to extract clean failure information
+		cleanError := j.parseJUnitFailure(string(output))
 		return graph.TaskResult{
-			Error: fmt.Errorf("junit test execution failed: %w\nOutput: %s", err, string(output)),
+			Error: fmt.Errorf("junit test execution failed: %w\n%s", err, cleanError),
 		}
 	}
 	
@@ -179,4 +181,77 @@ func (j *JunitTest) GetClassName() string {
 // DisplayName returns a detailed display name including the test file
 func (j *JunitTest) DisplayName() string {
 	return fmt.Sprintf("junit-test (%s)", j.testFile)
+}
+
+// parseJUnitFailure extracts clean failure information from JUnit output
+func (j *JunitTest) parseJUnitFailure(output string) string {
+	lines := strings.Split(output, "\n")
+	var failureLines []string
+	inFailureSection := false
+	inStackTrace := false
+	
+	for _, line := range lines {
+		// Skip JUnit header and promotional content
+		if strings.Contains(line, "Thanks for using JUnit") ||
+		   strings.Contains(line, "sponsoring") ||
+		   strings.Contains(line, "Test run finished") ||
+		   strings.Contains(line, "containers found") ||
+		   strings.Contains(line, "containers skipped") ||
+		   strings.Contains(line, "containers started") ||
+		   strings.Contains(line, "containers aborted") ||
+		   strings.Contains(line, "containers successful") ||
+		   strings.Contains(line, "containers failed") ||
+		   strings.Contains(line, "tests found") ||
+		   strings.Contains(line, "tests skipped") ||
+		   strings.Contains(line, "tests started") ||
+		   strings.Contains(line, "tests aborted") ||
+		   strings.Contains(line, "tests successful") ||
+		   strings.Contains(line, "tests failed") ||
+		   strings.Contains(line, "WARNING: Delegated") ||
+		   strings.Contains(line, "This behaviour has been deprecated") ||
+		   strings.Contains(line, "Please use the 'execute' command") ||
+		   strings.HasPrefix(line, "╷") ||
+		   strings.HasPrefix(line, "├─") ||
+		   strings.HasPrefix(line, "│") ||
+		   strings.HasPrefix(line, "└─") ||
+		   strings.TrimSpace(line) == "" {
+			continue
+		}
+		
+		// Start capturing when we hit "Failures"
+		if strings.HasPrefix(line, "Failures (") {
+			inFailureSection = true
+			continue
+		}
+		
+		// Start capturing stack trace when we see the test method line  
+		if inFailureSection && (strings.Contains(line, "JUnit Jupiter:") || strings.Contains(line, "MethodSource") || strings.Contains(line, "=>")) {
+			inStackTrace = true
+			failureLines = append(failureLines, line)
+			continue
+		}
+		
+		// Capture stack trace lines
+		if inStackTrace {
+			// Trim excessive whitespace but preserve indentation structure
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" {
+				// Preserve some indentation for readability
+				if strings.HasPrefix(trimmed, "=>") || strings.HasPrefix(trimmed, "MethodSource") {
+					failureLines = append(failureLines, "    "+trimmed)
+				} else if strings.Contains(trimmed, ".java:") || strings.Contains(trimmed, ".kt:") {
+					failureLines = append(failureLines, "       "+trimmed)
+				} else {
+					failureLines = append(failureLines, "    "+trimmed)
+				}
+			}
+		}
+	}
+	
+	if len(failureLines) == 0 {
+		// If we couldn't parse the failure, return a simplified version
+		return "Test failed (see full output above for details)"
+	}
+	
+	return strings.Join(failureLines, "\n")
 }
