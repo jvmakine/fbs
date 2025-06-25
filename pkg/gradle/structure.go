@@ -300,3 +300,105 @@ func (g *GradleCompilationRoot) hasDependency(junitTask *kotlin.JunitTest, kotli
 	}
 	return false
 }
+
+// GetBuildInfo returns the parsed build information for this compilation root
+func (g *GradleCompilationRoot) GetBuildInfo() *GradleBuildInfo {
+	return g.buildInfo
+}
+
+// ResolveProjectDependencies resolves dependencies between compilation roots
+func (g *GradleCompilationRoot) ResolveProjectDependencies(buildGraph *graph.Graph, allRoots []discoverer.CompilationRoot) error {
+	if g.buildInfo == nil {
+		return nil // No build info to process
+	}
+	
+	// First, create a map of project paths to JAR tasks
+	projectPathToJarTask := make(map[string]graph.Task)
+	
+	// Collect all JAR tasks and their associated project paths
+	for _, task := range buildGraph.GetTasks() {
+		if task.Name() == "jar-compile" {
+			// Find the compilation root for this task
+			taskDir := task.Directory()
+			for _, root := range allRoots {
+				if root.GetRootDir() == taskDir {
+					// Get the project path for this compilation root
+					projectPath := getProjectPathFromRoot(root)
+					if projectPath != "" {
+						projectPathToJarTask[projectPath] = task
+					}
+					break
+				}
+			}
+		}
+	}
+	
+	// Find the JAR task for this compilation root
+	var currentJarTask graph.Task
+	for _, task := range buildGraph.GetTasks() {
+		if task.Name() == "jar-compile" && task.Directory() == g.rootDir {
+			currentJarTask = task
+			break
+		}
+	}
+	
+	if currentJarTask != nil {
+		// Cast to JarCompile to add dependencies
+		if jarTask, ok := currentJarTask.(*JarCompile); ok {
+			// Add dependencies for each project dependency
+			for _, dep := range g.buildInfo.GetProjectDependencies() {
+				dependencyJarTask := projectPathToJarTask[dep.Name]
+				if dependencyJarTask != nil {
+					jarTask.AddDependency(dependencyJarTask)
+				}
+			}
+		}
+	}
+	
+	return nil
+}
+
+// getProjectPathFromRoot extracts the Gradle project path from a compilation root
+func getProjectPathFromRoot(root discoverer.CompilationRoot) string {
+	// For a compilation root like "/path/to/cash-server/login-audit/service"
+	// We want to extract ":login-audit:service"
+	rootDir := root.GetRootDir()
+	
+	// Find the topmost directory with a settings.gradle or build.gradle
+	current := rootDir
+	var projectRoot string
+	
+	for {
+		parent := filepath.Dir(current)
+		if parent == current || parent == "/" {
+			break
+		}
+		
+		// Check if parent has settings.gradle (indicates project root)
+		if _, err := os.Stat(filepath.Join(parent, "settings.gradle")); err == nil {
+			projectRoot = parent
+			break
+		}
+		if _, err := os.Stat(filepath.Join(parent, "settings.gradle.kts")); err == nil {
+			projectRoot = parent
+			break
+		}
+		
+		current = parent
+	}
+	
+	if projectRoot == "" {
+		return ""
+	}
+	
+	// Calculate relative path from project root
+	relPath, err := filepath.Rel(projectRoot, rootDir)
+	if err != nil {
+		return ""
+	}
+	
+	// Convert filesystem path to Gradle project path
+	// "login-audit/service" -> ":login-audit:service"
+	projectPath := ":" + strings.ReplaceAll(relPath, "/", ":")
+	return projectPath
+}

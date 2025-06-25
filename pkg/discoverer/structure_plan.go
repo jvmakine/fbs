@@ -157,6 +157,14 @@ func PlanWithStructure(ctx context.Context, dir string, discoverers []Discoverer
 		compilationRoots = append(compilationRoots, root)
 	}
 	
+	// Resolve inter-module project dependencies
+	for _, root := range compilationRoots {
+		err = root.ResolveProjectDependencies(buildGraph, compilationRoots)
+		if err != nil {
+			allErrors = append(allErrors, fmt.Errorf("failed to resolve project dependencies for %s: %w", root.GetRootDir(), err))
+		}
+	}
+	
 	return &StructurePlanResult{
 		Graph:                buildGraph,
 		Errors:               allErrors,
@@ -194,3 +202,4 @@ func findCompilationRoot(ctx context.Context, startDir string, structureDiscover
 	
 	return nil, nil // No compilation root found
 }
+

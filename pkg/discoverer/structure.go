@@ -19,6 +19,9 @@ type CompilationRoot interface {
 	
 	// GetType returns the type of compilation root (e.g., "gradle", "maven", etc.)
 	GetType() string
+	
+	// ResolveProjectDependencies resolves dependencies between compilation roots
+	ResolveProjectDependencies(buildGraph *graph.Graph, allRoots []CompilationRoot) error
 }
 
 // StructureDiscoverer discovers compilation roots in the file system
