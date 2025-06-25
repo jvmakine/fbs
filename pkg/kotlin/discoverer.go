@@ -47,14 +47,40 @@ func (d *KotlinDiscoverer) Discover(ctx context.Context, path string, potentialD
 		searchDir = filepath.Dir(path)
 	}
 	
-	// Find Kotlin files in the root of the directory (not recursive)
-	kotlinFiles, err := d.findKotlinFiles(searchDir)
-	if err != nil {
-		return &discoverer.DiscoveryResult{
-			Tasks:  []graph.Task{},
-			Errors: []error{err},
-			Path:   path,
-		}, nil
+	// Check if this is a source root directory (src/main/kotlin, src/test/kotlin, etc)
+	isSourceRoot := d.isSourceRoot(searchDir)
+	
+	var kotlinFiles []string
+	if isSourceRoot {
+		// For source roots, recursively find all Kotlin files
+		kotlinFiles, err = d.findKotlinFilesRecursive(searchDir)
+		if err != nil {
+			return &discoverer.DiscoveryResult{
+				Tasks:  []graph.Task{},
+				Errors: []error{err},
+				Path:   path,
+			}, nil
+		}
+	} else {
+		// For non-source roots, only check immediate directory
+		kotlinFiles, err = d.findKotlinFiles(searchDir)
+		if err != nil {
+			return &discoverer.DiscoveryResult{
+				Tasks:  []graph.Task{},
+				Errors: []error{err},
+				Path:   path,
+			}, nil
+		}
+		
+		// Skip creating tasks for non-source-root directories that might be part of a larger source tree
+		if len(kotlinFiles) > 0 && d.isPartOfSourceTree(searchDir) {
+			// This directory has Kotlin files but appears to be part of a larger source tree
+			// Let the source root handle compilation
+			return &discoverer.DiscoveryResult{
+				Tasks: []graph.Task{},
+				Path:  path,
+			}, nil
+		}
 	}
 	
 	// If no Kotlin files found, return empty result
@@ -98,6 +124,69 @@ func (d *KotlinDiscoverer) findKotlinFiles(dir string) ([]string, error) {
 		if strings.HasSuffix(entry.Name(), ".kt") {
 			kotlinFiles = append(kotlinFiles, entry.Name())
 		}
+	}
+	
+	return kotlinFiles, nil
+}
+
+// isSourceRoot checks if the given directory is a Kotlin source root
+func (d *KotlinDiscoverer) isSourceRoot(dir string) bool {
+	// Check if the directory ends with common Kotlin source root patterns
+	return strings.HasSuffix(dir, "/src/main/kotlin") ||
+		strings.HasSuffix(dir, "/src/test/kotlin") ||
+		strings.HasSuffix(dir, "/src/dev/kotlin") ||
+		strings.HasSuffix(dir, "/src/testFixtures/kotlin") ||
+		strings.HasSuffix(dir, "/src/integrationTest/kotlin")
+}
+
+// isPartOfSourceTree checks if a directory appears to be part of a larger source tree
+func (d *KotlinDiscoverer) isPartOfSourceTree(dir string) bool {
+	// Check if any parent directory is a source root
+	currentDir := dir
+	for {
+		parent := filepath.Dir(currentDir)
+		if parent == currentDir || parent == "/" {
+			break
+		}
+		
+		if d.isSourceRoot(parent) {
+			return true
+		}
+		
+		currentDir = parent
+	}
+	return false
+}
+
+// findKotlinFilesRecursive finds all .kt files in the given directory tree (recursive)
+func (d *KotlinDiscoverer) findKotlinFilesRecursive(rootDir string) ([]string, error) {
+	var kotlinFiles []string
+	
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+		
+		// Check if it's a Kotlin file
+		if strings.HasSuffix(info.Name(), ".kt") {
+			// Get relative path from the root directory
+			relPath, err := filepath.Rel(rootDir, path)
+			if err != nil {
+				return err
+			}
+			kotlinFiles = append(kotlinFiles, relPath)
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk directory %s: %w", rootDir, err)
 	}
 	
 	return kotlinFiles, nil

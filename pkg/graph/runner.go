@@ -286,11 +286,12 @@ func (r *Runner) executeTask(ctx context.Context, task Task, executedTasks map[s
 		return cachedResult, nil
 	}
 	
-	// Create output directory
-	err := os.MkdirAll(outputDir, 0755)
+	// Create temporary directory for task execution
+	tempDir, err := os.MkdirTemp("", "fbs-task-")
 	if err != nil {
-		return ExecutionResult{}, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+		return ExecutionResult{}, fmt.Errorf("failed to create temp directory: %w", err)
 	}
+	defer os.RemoveAll(tempDir) // Always clean up temp directory
 	
 	// Gather dependency inputs
 	var dependencyInputs []DependencyInput
@@ -307,14 +308,24 @@ func (r *Runner) executeTask(ctx context.Context, task Task, executedTasks map[s
 		})
 	}
 	
-	// Execute the task
-	taskResult := task.Execute(ctx, outputDir, dependencyInputs)
+	// Execute the task in the temporary directory
+	taskResult := task.Execute(ctx, tempDir, dependencyInputs)
 	
-	// If the task failed, clean up the output directory to prevent caching failed results
-	if taskResult.Error != nil {
-		// Remove the output directory since we don't want to cache failed tasks
-		os.RemoveAll(outputDir)
+	// Only move to cache if the task succeeded
+	if taskResult.Error == nil {
+		// Create the final cache directory
+		err := os.MkdirAll(outputDir, 0755)
+		if err != nil {
+			return ExecutionResult{}, fmt.Errorf("failed to create cache directory %s: %w", outputDir, err)
+		}
+		
+		// Move contents from temp directory to cache directory
+		err = r.moveTempToCache(tempDir, outputDir)
+		if err != nil {
+			return ExecutionResult{}, fmt.Errorf("failed to move temp results to cache: %w", err)
+		}
 	}
+	// If task failed, temp directory will be cleaned up by defer
 	
 	return ExecutionResult{
 		Task:      task,
@@ -374,6 +385,43 @@ func (r *Runner) loadCachedResult(task Task, taskHash, outputDir string) (Execut
 		},
 		CacheHit: true,
 	}, nil
+}
+
+// moveTempToCache moves all contents from temp directory to cache directory
+func (r *Runner) moveTempToCache(tempDir, cacheDir string) error {
+	// Walk through all files in temp directory
+	return filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		// Get relative path from temp directory
+		relPath, err := filepath.Rel(tempDir, path)
+		if err != nil {
+			return err
+		}
+		
+		// Skip the root directory itself
+		if relPath == "." {
+			return nil
+		}
+		
+		// Destination path in cache directory
+		destPath := filepath.Join(cacheDir, relPath)
+		
+		if info.IsDir() {
+			// Create directory in cache
+			return os.MkdirAll(destPath, info.Mode())
+		} else {
+			// Create parent directory if needed
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return err
+			}
+			
+			// Move file from temp to cache
+			return os.Rename(path, destPath)
+		}
+	})
 }
 
 // ExecuteTask executes a single task (useful for testing or selective execution)
