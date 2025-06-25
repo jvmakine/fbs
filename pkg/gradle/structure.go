@@ -12,11 +12,15 @@ import (
 )
 
 // GradleStructureDiscoverer discovers Gradle compilation roots
-type GradleStructureDiscoverer struct{}
+type GradleStructureDiscoverer struct{
+	cache map[string]*GradleCompilationRoot // Cache compilation roots by directory
+}
 
 // NewGradleStructureDiscoverer creates a new Gradle structure discoverer
 func NewGradleStructureDiscoverer() *GradleStructureDiscoverer {
-	return &GradleStructureDiscoverer{}
+	return &GradleStructureDiscoverer{
+		cache: make(map[string]*GradleCompilationRoot),
+	}
 }
 
 // Name returns the name of this structure discoverer
@@ -32,8 +36,14 @@ func (d *GradleStructureDiscoverer) IsCompilationRoot(ctx context.Context, dir s
 		return nil, nil
 	}
 	
-	// This is a Gradle compilation root, create and return it
+	// Check cache first
+	if cached, exists := d.cache[dir]; exists {
+		return cached, nil
+	}
+	
+	// This is a Gradle compilation root, create and cache it
 	root := NewGradleCompilationRoot(dir)
+	d.cache[dir] = root
 	return root, nil
 }
 
@@ -92,6 +102,7 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 	var kotlinCompileTasks []*kotlin.KotlinCompile
 	var junitTestTasks []*kotlin.JunitTest
 	var mainKotlinTasks []*kotlin.KotlinCompile
+	var testKotlinTasks []*kotlin.KotlinCompile
 	
 	for _, task := range tasks {
 		switch t := task.(type) {
@@ -100,6 +111,10 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 			// Check if this is a main source compile task
 			if strings.Contains(t.GetSourceDir(), "src/main") {
 				mainKotlinTasks = append(mainKotlinTasks, t)
+			}
+			// Check if this is a test source compile task
+			if strings.Contains(t.GetSourceDir(), "src/test") {
+				testKotlinTasks = append(testKotlinTasks, t)
 			}
 		case *kotlin.JunitTest:
 			junitTestTasks = append(junitTestTasks, t)
@@ -118,10 +133,13 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 		for _, kotlinTask := range mainKotlinTasks {
 			g.jarTask.AddDependency(kotlinTask)
 		}
-		// Only add JAR task to results once
+		// Always include JAR task when there are main tasks (first time) or test tasks that need it
 		if len(mainKotlinTasks) > 0 && !g.jarTaskReturned {
 			allTasks = append(allTasks, g.jarTask)
 			g.jarTaskReturned = true
+		} else if len(testKotlinTasks) > 0 {
+			// Also include the JAR task when we have test tasks that depend on it
+			allTasks = append(allTasks, g.jarTask)
 		}
 	}
 	
@@ -177,6 +195,16 @@ func (g *GradleCompilationRoot) GetTaskDependencies(dir string, tasks []graph.Ta
 	for _, kotlinTask := range kotlinCompileTasks {
 		for _, artifactTask := range g.artifactTasks {
 			kotlinTask.AddDependency(artifactTask)
+		}
+	}
+	
+	// 3.5. Add JAR compilation as dependency to test compilation tasks
+	// This must happen after the JAR task is created and added to allTasks
+	if g.jarTask != nil {
+		for _, kotlinTask := range kotlinCompileTasks {
+			if strings.Contains(kotlinTask.GetSourceDir(), "src/test") {
+				kotlinTask.AddDependency(g.jarTask)
+			}
 		}
 	}
 	

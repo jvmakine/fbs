@@ -106,19 +106,33 @@ func (j *JarCompile) Execute(ctx context.Context, workDir string, dependencyInpu
 	// Create JAR file using jar command
 	cmd := exec.CommandContext(ctx, "jar", "cf", j.outputPath)
 	
-	// Add all class files to the command
-	for _, classFile := range classFiles {
-		// Get relative path from the first class file's directory
-		relPath, err := filepath.Rel(filepath.Dir(classFiles[0]), classFile)
-		if err != nil {
-			relPath = classFile
+	// Find the common classes directory to work from
+	var classesDir string
+	if len(classFiles) > 0 {
+		// Look for the classes directory in the path
+		firstClassFile := classFiles[0]
+		if strings.Contains(firstClassFile, "/classes/") {
+			classesDir = firstClassFile[:strings.Index(firstClassFile, "/classes/")+9] // Include "/classes/"
+		} else {
+			classesDir = filepath.Dir(firstClassFile)
 		}
-		cmd.Args = append(cmd.Args, relPath)
 	}
 	
-	// Set working directory to the first class file's directory
-	if len(classFiles) > 0 {
-		cmd.Dir = filepath.Dir(classFiles[0])
+	// Set working directory to the classes directory
+	if classesDir != "" {
+		cmd.Dir = classesDir
+		
+		// Add all class files relative to the classes directory
+		for _, classFile := range classFiles {
+			relPath, err := filepath.Rel(classesDir, classFile)
+			if err != nil {
+				relPath = filepath.Base(classFile) // Just use filename as fallback
+			}
+			cmd.Args = append(cmd.Args, relPath)
+		}
+	} else {
+		// Fallback: add files directly
+		cmd.Args = append(cmd.Args, classFiles...)
 	}
 	
 	output, err := cmd.CombinedOutput()
@@ -128,14 +142,9 @@ func (j *JarCompile) Execute(ctx context.Context, workDir string, dependencyInpu
 		}
 	}
 	
-	// Return the JAR file as output
-	relPath, err := filepath.Rel(workDir, j.outputPath)
-	if err != nil {
-		relPath = j.outputPath
-	}
-	
+	// Return the JAR file as output (absolute path for external dependencies)
 	return graph.TaskResult{
-		Files: []string{relPath},
+		Files: []string{j.outputPath},
 	}
 }
 

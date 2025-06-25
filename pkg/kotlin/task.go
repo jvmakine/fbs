@@ -94,21 +94,39 @@ func (k *KotlinCompile) Execute(ctx context.Context, workDir string, dependencyI
 	// Build kotlin compiler command
 	args := []string{"-d", classesDir}
 	
-	// Add classpath if provided
-	if len(k.classpath) > 0 {
-		args = append(args, "-classpath", strings.Join(k.classpath, ":"))
-	}
+	// Build classpath from existing classpath and dependencies
+	var classpath []string
+	classpath = append(classpath, k.classpath...)
 	
-	// Add dependency classpaths
+	// Add dependency classpaths and JAR files
 	for _, dep := range dependencyInputs {
+		// Check for compiled classes from other compilation tasks
 		depClassesDir := filepath.Join(dep.OutputDir, "classes")
 		if _, err := os.Stat(depClassesDir); err == nil {
-			k.classpath = append(k.classpath, depClassesDir)
+			classpath = append(classpath, depClassesDir)
+		}
+		
+		// Check for JAR files from artifact-download tasks
+		for _, file := range dep.Files {
+			if strings.HasSuffix(file, ".jar") {
+				var jarPath string
+				if filepath.IsAbs(file) {
+					// Absolute path (e.g., from artifact downloads)
+					jarPath = file
+				} else {
+					// Relative path (from other build tasks)
+					jarPath = filepath.Join(dep.OutputDir, file)
+				}
+				if _, err := os.Stat(jarPath); err == nil {
+					classpath = append(classpath, jarPath)
+				}
+			}
 		}
 	}
 	
-	if len(k.classpath) > 0 {
-		args = append(args, "-classpath", strings.Join(k.classpath, ":"))
+	// Add classpath to compiler arguments if not empty
+	if len(classpath) > 0 {
+		args = append(args, "-classpath", strings.Join(classpath, ":"))
 	}
 	
 	// Add source files

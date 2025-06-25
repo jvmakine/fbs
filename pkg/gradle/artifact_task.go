@@ -13,13 +13,14 @@ import (
 	"fbs/pkg/graph"
 )
 
-// ArtifactDownload represents a task that downloads an external artifact
+// ArtifactDownload represents a task that downloads an external artifact and its transitive dependencies
 type ArtifactDownload struct {
 	group       string
 	name        string
 	version     string
 	artifact    string // full coordinate like "group:name:version"
-	localPath   string // path in local gradle cache
+	localPath   string // path in local gradle cache for main artifact
+	transitive  []*MavenArtifact // transitive dependencies
 	id          string
 	hash        string
 }
@@ -37,6 +38,16 @@ func NewArtifactDownload(group, name, version string) *ArtifactDownload {
 	homeDir, _ := os.UserHomeDir()
 	task.localPath = filepath.Join(homeDir, ".gradle", "caches", "modules-2", "files-2.1", 
 		group, name, version, name+"-"+version+".jar")
+	
+	// Resolve transitive dependencies
+	visited := make(map[string]bool)
+	transitives, err := GetTransitiveDependencies(group, name, version, visited)
+	if err != nil {
+		// If we can't resolve transitives, continue with just the main artifact
+		fmt.Printf("Warning: failed to resolve transitive dependencies for %s:%s:%s: %v\n", group, name, version, err)
+	} else {
+		task.transitive = transitives
+	}
 	
 	// Generate ID and hash
 	task.id = task.generateID()
@@ -82,70 +93,80 @@ func (a *ArtifactDownload) TaskType() graph.TaskType {
 
 // Execute runs the artifact download task
 func (a *ArtifactDownload) Execute(ctx context.Context, workDir string, dependencyInputs []graph.DependencyInput) graph.TaskResult {
-	// Check if artifact already exists
-	if _, err := os.Stat(a.localPath); err == nil {
-		// Return the existing artifact file
-		relPath, err := filepath.Rel(workDir, a.localPath)
-		if err != nil {
-			relPath = a.localPath
-		}
+	var allJars []string
+	
+	// Download main artifact
+	mainJar, err := a.downloadArtifact(a.group, a.name, a.version)
+	if err != nil {
 		return graph.TaskResult{
-			Files: []string{relPath},
+			Error: fmt.Errorf("failed to download main artifact %s: %w", a.artifact, err),
 		}
+	}
+	allJars = append(allJars, mainJar)
+	
+	// Download transitive dependencies
+	for _, dep := range a.transitive {
+		depJar, err := a.downloadArtifact(dep.GroupID, dep.ArtifactID, dep.Version)
+		if err != nil {
+			// Log warning but continue with other dependencies
+			fmt.Printf("Warning: failed to download transitive dependency %s: %v\n", dep.String(), err)
+			continue
+		}
+		allJars = append(allJars, depJar)
+	}
+	
+	// Return all JAR files (use absolute paths for external artifacts)
+	return graph.TaskResult{
+		Files: allJars,
+	}
+}
+
+// downloadArtifact downloads a single artifact JAR
+func (a *ArtifactDownload) downloadArtifact(group, name, version string) (string, error) {
+	// Generate local cache path
+	homeDir, _ := os.UserHomeDir()
+	localPath := filepath.Join(homeDir, ".gradle", "caches", "modules-2", "files-2.1", 
+		group, name, version, name+"-"+version+".jar")
+	
+	// Check if artifact already exists
+	if _, err := os.Stat(localPath); err == nil {
+		return localPath, nil
 	}
 	
 	// Create cache directory
-	if err := os.MkdirAll(filepath.Dir(a.localPath), 0755); err != nil {
-		return graph.TaskResult{
-			Error: fmt.Errorf("failed to create cache directory: %w", err),
-		}
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create cache directory: %w", err)
 	}
 	
 	// Construct download URL (using Maven Central as default)
 	downloadURL := fmt.Sprintf("https://repo1.maven.org/maven2/%s/%s/%s/%s-%s.jar",
-		strings.ReplaceAll(a.group, ".", "/"), a.name, a.version, a.name, a.version)
+		strings.ReplaceAll(group, ".", "/"), name, version, name, version)
 	
 	// Download the artifact
 	resp, err := http.Get(downloadURL)
 	if err != nil {
-		return graph.TaskResult{
-			Error: fmt.Errorf("failed to download artifact %s: %w", a.artifact, err),
-		}
+		return "", fmt.Errorf("failed to download %s:%s:%s: %w", group, name, version, err)
 	}
 	defer resp.Body.Close()
 	
 	if resp.StatusCode != http.StatusOK {
-		return graph.TaskResult{
-			Error: fmt.Errorf("failed to download artifact %s: HTTP %d", a.artifact, resp.StatusCode),
-		}
+		return "", fmt.Errorf("failed to download %s:%s:%s: HTTP %d", group, name, version, resp.StatusCode)
 	}
 	
 	// Create the local file
-	file, err := os.Create(a.localPath)
+	file, err := os.Create(localPath)
 	if err != nil {
-		return graph.TaskResult{
-			Error: fmt.Errorf("failed to create local file: %w", err),
-		}
+		return "", fmt.Errorf("failed to create local file: %w", err)
 	}
 	defer file.Close()
 	
 	// Copy the content
 	_, err = io.Copy(file, resp.Body)
 	if err != nil {
-		return graph.TaskResult{
-			Error: fmt.Errorf("failed to save artifact: %w", err),
-		}
+		return "", fmt.Errorf("failed to save artifact: %w", err)
 	}
 	
-	// Return the downloaded artifact file
-	relPath, err := filepath.Rel(workDir, a.localPath)
-	if err != nil {
-		relPath = a.localPath
-	}
-	
-	return graph.TaskResult{
-		Files: []string{relPath},
-	}
+	return localPath, nil
 }
 
 // GetArtifact returns the artifact coordinate
