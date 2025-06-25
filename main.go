@@ -16,11 +16,12 @@ import (
 )
 
 type CLI struct {
-	Version bool     `short:"v" help:"Show version information"`
-	Plan    PlanCmd  `cmd:"" help:"Plan and print the build graph"`
-	Build   BuildCmd `cmd:"" help:"Execute build tasks in the specified directory"`
-	Test    TestCmd  `cmd:"" help:"Execute test tasks in the specified directory"`
-	Deps    DepsCmd  `cmd:"" help:"Execute dependency tasks in the specified directory"`
+	Version  bool     `short:"v" help:"Show version information"`
+	Parallel int      `short:"j" help:"Number of parallel workers for task execution" default:"8"`
+	Plan     PlanCmd  `cmd:"" help:"Plan and print the build graph"`
+	Build    BuildCmd `cmd:"" help:"Execute build tasks in the specified directory"`
+	Test     TestCmd  `cmd:"" help:"Execute test tasks in the specified directory"`
+	Deps     DepsCmd  `cmd:"" help:"Execute dependency tasks in the specified directory"`
 }
 
 type PlanCmd struct {
@@ -51,19 +52,19 @@ func main() {
 			os.Exit(1)
 		}
 	case "build <directory>", "build":
-		err := runExecute(cli.Build.Directory, graph.TaskTypeBuild)
+		err := runExecute(cli.Build.Directory, graph.TaskTypeBuild, cli.Parallel)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 	case "test <directory>", "test":
-		err := runExecute(cli.Test.Directory, graph.TaskTypeTest)
+		err := runExecute(cli.Test.Directory, graph.TaskTypeTest, cli.Parallel)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 	case "deps <directory>", "deps":
-		err := runExecute(cli.Deps.Directory, graph.TaskTypeDeps)
+		err := runExecute(cli.Deps.Directory, graph.TaskTypeDeps, cli.Parallel)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -118,7 +119,7 @@ func runPlan(cmd PlanCmd) error {
 	return nil
 }
 
-func runExecute(directory string, taskType graph.TaskType) error {
+func runExecute(directory string, taskType graph.TaskType, parallelWorkers int) error {
 	// Determine the directory to execute in
 	execDir := directory
 	if execDir == "" {
@@ -269,7 +270,7 @@ func runExecute(directory string, taskType graph.TaskType) error {
 
 	// Execute the tasks with progress
 	runner := graph.NewRunner(tempDir)
-	_, err = runner.ExecuteWithProgress(ctx, executionGraph, progressCallback)
+	_, err = runner.ExecuteWithProgressParallel(ctx, executionGraph, progressCallback, parallelWorkers)
 	
 	if err != nil {
 		return fmt.Errorf("execution failed: %w", err)

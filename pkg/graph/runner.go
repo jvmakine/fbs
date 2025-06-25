@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // ExecutionResult represents the result of executing a task with its output location
@@ -38,6 +39,21 @@ func (r *Runner) Execute(ctx context.Context, graph *Graph) ([]ExecutionResult, 
 
 // ExecuteWithProgress runs all tasks in the graph with progress callbacks
 func (r *Runner) ExecuteWithProgress(ctx context.Context, graph *Graph, progressCallback ProgressCallback) ([]ExecutionResult, error) {
+	return r.ExecuteWithProgressParallel(ctx, graph, progressCallback, 1)
+}
+
+// ExecuteWithProgressParallel runs all tasks in the graph with progress callbacks using parallel workers
+func (r *Runner) ExecuteWithProgressParallel(ctx context.Context, graph *Graph, progressCallback ProgressCallback, parallelWorkers int) ([]ExecutionResult, error) {
+	if parallelWorkers <= 1 {
+		// Fall back to sequential execution
+		return r.executeSequential(ctx, graph, progressCallback)
+	}
+	
+	return r.executeParallel(ctx, graph, progressCallback, parallelWorkers)
+}
+
+// executeSequential runs tasks sequentially (original implementation)
+func (r *Runner) executeSequential(ctx context.Context, graph *Graph, progressCallback ProgressCallback) ([]ExecutionResult, error) {
 	// Get tasks in topological order
 	orderedTasks, err := graph.TopologicalSort()
 	if err != nil {
@@ -85,6 +101,171 @@ func (r *Runner) ExecuteWithProgress(ctx context.Context, graph *Graph, progress
 	}
 	
 	return results, nil
+}
+
+// executeParallel runs tasks in parallel using worker goroutines
+func (r *Runner) executeParallel(ctx context.Context, graph *Graph, progressCallback ProgressCallback, parallelWorkers int) ([]ExecutionResult, error) {
+	allTasks := graph.GetTasks()
+	
+	// Track task dependencies and completion status
+	taskDeps := make(map[string]map[string]bool) // taskID -> set of dependency task IDs
+	taskInDegree := make(map[string]int)         // taskID -> number of uncompleted dependencies
+	
+	// Initialize dependency tracking
+	for _, task := range allTasks {
+		taskID := task.ID()
+		deps := make(map[string]bool)
+		for _, dep := range task.Dependencies() {
+			deps[dep.ID()] = true
+		}
+		taskDeps[taskID] = deps
+		taskInDegree[taskID] = len(deps)
+	}
+	
+	// Channels for communication
+	taskQueue := make(chan Task, len(allTasks))
+	resultChan := make(chan ExecutionResult, len(allTasks))
+	errorChan := make(chan error, parallelWorkers)
+	
+	// Shared executed tasks map with mutex for thread safety
+	executedTasks := &SafeExecutedTasks{
+		tasks: make(map[string]ExecutionResult),
+	}
+	
+	// Add tasks with no dependencies to the initial queue
+	for _, task := range allTasks {
+		if taskInDegree[task.ID()] == 0 {
+			select {
+			case taskQueue <- task:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+	
+	// Start worker goroutines
+	for i := 0; i < parallelWorkers; i++ {
+		go r.workerParallel(ctx, taskQueue, resultChan, errorChan, progressCallback, executedTasks)
+	}
+	
+	// Collect results and manage task queue
+	var results []ExecutionResult
+	completedCount := 0
+	
+	for completedCount < len(allTasks) {
+		select {
+		case <-ctx.Done():
+			return results, ctx.Err()
+		case err := <-errorChan:
+			return results, err
+		case result := <-resultChan:
+			// Handle task completion
+			results = append(results, result)
+			executedTasks.Set(result.Task.ID(), result)
+			completedCount++
+			
+			// Stop execution if task failed
+			if result.Result.Error != nil {
+				return results, fmt.Errorf("task %s failed: %w", result.Task.ID(), result.Result.Error)
+			}
+			
+			// Update dependency counts and queue newly available tasks
+			completedTaskID := result.Task.ID()
+			for _, task := range allTasks {
+				taskID := task.ID()
+				if deps, exists := taskDeps[taskID]; exists {
+					if deps[completedTaskID] {
+						// This task was waiting for the completed task
+						taskInDegree[taskID]--
+						if taskInDegree[taskID] == 0 {
+							// All dependencies are now complete, queue this task
+							select {
+							case taskQueue <- task:
+							case <-ctx.Done():
+								return results, ctx.Err()
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// Close the task queue to signal workers to stop
+	close(taskQueue)
+	
+	return results, nil
+}
+
+// SafeExecutedTasks provides thread-safe access to executed tasks
+type SafeExecutedTasks struct {
+	tasks map[string]ExecutionResult
+	mu    sync.RWMutex
+}
+
+func (s *SafeExecutedTasks) Set(taskID string, result ExecutionResult) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tasks[taskID] = result
+}
+
+func (s *SafeExecutedTasks) ToMap() map[string]ExecutionResult {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	// Create a copy of the map
+	result := make(map[string]ExecutionResult)
+	for k, v := range s.tasks {
+		result[k] = v
+	}
+	return result
+}
+
+// workerParallel executes tasks from the queue with access to shared executed tasks
+func (r *Runner) workerParallel(ctx context.Context, taskQueue <-chan Task, resultChan chan<- ExecutionResult, errorChan chan<- error, progressCallback ProgressCallback, executedTasks *SafeExecutedTasks) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task, ok := <-taskQueue:
+			if !ok {
+				return // Channel closed, worker should exit
+			}
+			
+			// Process the task
+			if progressCallback != nil {
+				progressCallback(task, "running", false)
+			}
+			
+			// Get current executed tasks for dependency resolution
+			currentExecutedTasks := executedTasks.ToMap()
+			
+			result, err := r.executeTask(ctx, task, currentExecutedTasks)
+			if err != nil {
+				select {
+				case errorChan <- fmt.Errorf("failed to execute task %s: %w", task.ID(), err):
+				case <-ctx.Done():
+				}
+				return
+			}
+			
+			// Notify progress callback
+			if progressCallback != nil {
+				status := "completed"
+				if result.Result.Error != nil {
+					status = "failed"
+				}
+				progressCallback(task, status, true)
+			}
+			
+			// Send result
+			select {
+			case resultChan <- result:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
 }
 
 // executeTask executes a single task and stores its results
