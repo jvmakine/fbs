@@ -197,8 +197,12 @@ func TestPlan_MockDiscoverers(t *testing.T) {
 	
 	goDiscoverer := NewMockPlanDiscoverer("GoTest",
 		func(ctx context.Context, path string, potentialDependencies []graph.Task, buildContext *BuildContext) (*DiscoveryResult, error) {
+			// Resolve symlinks for comparison on macOS
+			resolvedPath, _ := filepath.EvalSymlinks(path)
+			resolvedTempDir, _ := filepath.EvalSymlinks(tempDir)
+			
 			// Only create task for root directory
-			if path == tempDir {
+			if resolvedPath == resolvedTempDir {
 				taskCount++
 				return &DiscoveryResult{
 					Tasks: []graph.Task{
@@ -226,14 +230,20 @@ func TestPlan_MockDiscoverers(t *testing.T) {
 		t.Fatalf("Plan failed: %v", err)
 	}
 	
-	if result.RootDir != tempDir {
-		t.Errorf("Expected root dir %s, got %s", tempDir, result.RootDir)
+	// Resolve symlinks for comparison on macOS
+	expectedDir, _ := filepath.EvalSymlinks(tempDir)
+	actualDir, _ := filepath.EvalSymlinks(result.RootDir)
+	if actualDir != expectedDir {
+		t.Errorf("Expected root dir %s, got %s", expectedDir, actualDir)
 	}
 	
 	// Should have found at least 3 tasks (2 from kotlin + 1 from go)
 	tasks := result.Graph.GetTasks()
 	if len(tasks) < 3 {
 		t.Errorf("Expected at least 3 tasks, got %d", len(tasks))
+		for i, task := range tasks {
+			t.Logf("Task %d: %s (dir: %s)", i, task.Name(), task.Directory())
+		}
 	}
 	
 	// Verify that node_modules was not scanned

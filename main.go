@@ -83,39 +83,26 @@ func runPlan(cmd PlanCmd) error {
 		return fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	// Change to the target directory for planning
-	originalDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-	defer os.Chdir(originalDir)
-
-	err = os.Chdir(absDir)
-	if err != nil {
-		return fmt.Errorf("failed to change to directory %s: %w", absDir, err)
+	// Create structure discoverers
+	structureDiscoverers := []discoverer.StructureDiscoverer{
+		gradle.NewGradleStructureDiscoverer(),
 	}
 
-	// Create context discoverers
-	contextDiscoverers := []discoverer.ContextDiscoverer{
-		gradle.NewGradleContextDiscoverer(),
-	}
-
-	// Create discoverers
+	// Create discoverers (excluding GradleDiscoverer since that's now handled by compilation root)
 	discoverers := []discoverer.Discoverer{
 		kotlin.NewKotlinDiscoverer(),
 		kotlin.NewJunitDiscoverer(),
-		gradle.NewGradleDiscoverer(),
 	}
 
-	// Plan the build graph
+	// Plan the build graph using structure-based approach
 	ctx := context.Background()
-	result, err := discoverer.Plan(ctx, discoverers, contextDiscoverers)
+	result, err := discoverer.PlanWithStructure(ctx, absDir, discoverers, structureDiscoverers)
 	if err != nil {
 		return fmt.Errorf("failed to plan build graph: %w", err)
 	}
 
 	// Print the results
-	printPlanResult(result, absDir)
+	printStructurePlanResult(result, absDir)
 
 	return nil
 }
@@ -149,21 +136,20 @@ func runExecute(directory string, taskType graph.TaskType) error {
 		return fmt.Errorf("failed to change to directory %s: %w", absDir, err)
 	}
 
-	// Create context discoverers
-	contextDiscoverers := []discoverer.ContextDiscoverer{
-		gradle.NewGradleContextDiscoverer(),
+	// Create structure discoverers
+	structureDiscoverers := []discoverer.StructureDiscoverer{
+		gradle.NewGradleStructureDiscoverer(),
 	}
 
-	// Create discoverers
+	// Create discoverers (excluding GradleDiscoverer since that's now handled by compilation root)
 	discoverers := []discoverer.Discoverer{
 		kotlin.NewKotlinDiscoverer(),
 		kotlin.NewJunitDiscoverer(),
-		gradle.NewGradleDiscoverer(),
 	}
 
-	// Plan the build graph
+	// Plan the build graph using structure-based approach
 	ctx := context.Background()
-	result, err := discoverer.Plan(ctx, discoverers, contextDiscoverers)
+	result, err := discoverer.PlanWithStructure(ctx, absDir, discoverers, structureDiscoverers)
 	if err != nil {
 		return fmt.Errorf("failed to plan build graph: %w", err)
 	}
@@ -278,6 +264,77 @@ func printPlanResult(result *discoverer.PlanResult, baseDir string) {
 	// Print errors if any
 	if len(result.Errors) > 0 {
 		fmt.Println("\nErrors:")
+		for i, err := range result.Errors {
+			fmt.Printf("%d. %v\n", i+1, err)
+		}
+	}
+}
+
+func printStructurePlanResult(result *discoverer.StructurePlanResult, baseDir string) {
+	// Print compilation roots found
+	fmt.Printf("Planning Directory: %s\n", result.RootDir)
+	if len(result.CompilationRoots) > 0 {
+		fmt.Println("Compilation Roots:")
+		for i, root := range result.CompilationRoots {
+			fmt.Printf("  %d. %s (%s)\n", i+1, root.GetRootDir(), root.GetType())
+		}
+		fmt.Println()
+	}
+
+	// Print tasks organized by compilation root
+	tasks := result.Graph.GetTasks()
+	if len(tasks) == 0 {
+		fmt.Println("No tasks discovered.")
+		return
+	}
+
+	// Group tasks by compilation root
+	tasksByRoot := make(map[string][]graph.Task)
+	for _, task := range tasks {
+		if root, exists := result.TaskCompilationRoots[task.ID()]; exists {
+			rootKey := root.GetRootDir()
+			tasksByRoot[rootKey] = append(tasksByRoot[rootKey], task)
+		} else {
+			// Tasks without compilation root (shouldn't happen, but handle gracefully)
+			tasksByRoot["unknown"] = append(tasksByRoot["unknown"], task)
+		}
+	}
+
+	// Print tasks grouped by compilation root
+	for rootDir, rootTasks := range tasksByRoot {
+		if rootDir == "unknown" {
+			fmt.Println("Tasks without compilation root:")
+		} else {
+			// Find the compilation root info
+			var rootType string
+			for _, root := range result.CompilationRoots {
+				if root.GetRootDir() == rootDir {
+					rootType = root.GetType()
+					break
+				}
+			}
+			
+			relRootPath, err := filepath.Rel(baseDir, rootDir)
+			if err != nil {
+				relRootPath = rootDir
+			}
+			if relRootPath == "" {
+				relRootPath = "."
+			}
+			
+			fmt.Printf("Tasks from %s compilation root (%s):\n", rootType, relRootPath)
+		}
+		
+		for _, task := range rootTasks {
+			fmt.Print("  ")
+			printTask(task, 0, baseDir)
+		}
+		fmt.Println()
+	}
+
+	// Print errors if any
+	if len(result.Errors) > 0 {
+		fmt.Println("Errors:")
 		for i, err := range result.Errors {
 			fmt.Printf("%d. %v\n", i+1, err)
 		}
