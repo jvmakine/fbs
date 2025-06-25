@@ -22,7 +22,7 @@ func TestJunitDiscoverer_Discover(t *testing.T) {
 	ctx := context.Background()
 
 	// Test 1: Directory with JUnit test files
-	testDir := filepath.Join(tempDir, "test_project")
+	testDir := filepath.Join(tempDir, "test_project", "src", "test", "kotlin")
 	err = os.MkdirAll(testDir, 0755)
 	if err != nil {
 		t.Fatalf("Failed to create test project dir: %v", err)
@@ -44,14 +44,32 @@ class ExampleTest {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	// Create a non-test Kotlin file
+	// Create a Kotlin file in src/test that doesn't end with Test.kt
+	nonTestInTestDir := "Helper.kt"
+	helperContent := `class Helper {
+    fun helperMethod() {
+        // This is a helper class, not a test
+    }
+}`
+	err = os.WriteFile(filepath.Join(testDir, nonTestInTestDir), []byte(helperContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create helper file: %v", err)
+	}
+
+	// Create a non-test Kotlin file in src/main
+	srcMainDir := filepath.Join(tempDir, "test_project", "src", "main", "kotlin")
+	err = os.MkdirAll(srcMainDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create src/main dir: %v", err)
+	}
+	
 	nonTestFile := "Example.kt"
 	nonTestContent := `class Example {
     fun hello(): String {
         return "Hello"
     }
 }`
-	err = os.WriteFile(filepath.Join(testDir, nonTestFile), []byte(nonTestContent), 0644)
+	err = os.WriteFile(filepath.Join(srcMainDir, nonTestFile), []byte(nonTestContent), 0644)
 	if err != nil {
 		t.Fatalf("Failed to create non-test file: %v", err)
 	}

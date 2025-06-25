@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"fbs/pkg/discoverer"
@@ -88,7 +87,7 @@ func (d *JunitDiscoverer) Discover(ctx context.Context, path string, potentialDe
 	}, nil
 }
 
-// findKotlinTestFiles finds all .kt files that contain JUnit tests in the given directory (non-recursive)
+// findKotlinTestFiles finds all .kt files that end with Test.kt and are under src/test (non-recursive)
 func (d *JunitDiscoverer) findKotlinTestFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -101,47 +100,24 @@ func (d *JunitDiscoverer) findKotlinTestFiles(dir string) ([]string, error) {
 			continue
 		}
 		
-		if strings.HasSuffix(entry.Name(), ".kt") {
-			// Check if the file contains JUnit test annotations
-			isTestFile, err := d.containsJunitTests(filepath.Join(dir, entry.Name()))
-			if err != nil {
-				// Log error but continue processing other files
-				continue
-			}
-			if isTestFile {
-				testFiles = append(testFiles, entry.Name())
-			}
+		// Check if file ends with Test.kt and is under src/test
+		if d.isTestFile(entry.Name(), dir) {
+			testFiles = append(testFiles, entry.Name())
 		}
 	}
 	
 	return testFiles, nil
 }
 
-// containsJunitTests checks if a Kotlin file contains JUnit test annotations
-func (d *JunitDiscoverer) containsJunitTests(filePath string) (bool, error) {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return false, fmt.Errorf("failed to read file %s: %w", filePath, err)
+// isTestFile checks if a Kotlin file is a test file based on naming convention and path
+func (d *JunitDiscoverer) isTestFile(fileName, dir string) bool {
+	// Check if file ends with Test.kt
+	if !strings.HasSuffix(fileName, "Test.kt") {
+		return false
 	}
 	
-	fileContent := string(content)
-	
-	// Check for common JUnit annotations
-	junitPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`@Test`),
-		regexp.MustCompile(`@org\.junit\.jupiter\.api\.Test`),
-		regexp.MustCompile(`@org\.junit\.Test`),
-		regexp.MustCompile(`import\s+org\.junit`),
-		regexp.MustCompile(`import\s+org\.junit\.jupiter`),
-	}
-	
-	for _, pattern := range junitPatterns {
-		if pattern.MatchString(fileContent) {
-			return true, nil
-		}
-	}
-	
-	return false, nil
+	// Check if directory path contains src/test
+	return strings.Contains(dir, "src/test")
 }
 
 // extractClassName extracts the class name from a Kotlin file name
